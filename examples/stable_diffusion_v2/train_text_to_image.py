@@ -6,10 +6,12 @@ import importlib
 import logging
 import os
 import shutil
+import sys
 
 import yaml
 from common import init_env
-from ldm.data.dataset import build_dataset
+from ldm.data.dataset_refactored import ImageDataset
+from ldm.data.transforms import TokenizerWrapper
 from ldm.modules.logger import set_logger
 from ldm.modules.lora import inject_trainable_lora, inject_trainable_lora_to_textencoder
 from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
@@ -24,6 +26,9 @@ from omegaconf import OmegaConf
 from mindspore import Model, Profiler, load_checkpoint, load_param_into_net, nn
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
+
+sys.path.append("../../")  # FIXME: remove in future when mindone is ready for install
+from mindone.data import build_dataloader
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 
@@ -260,19 +265,17 @@ def main(args):
         )
 
     # build dataset
-    tokenizer = latent_diffusion_with_loss.cond_stage_model.tokenizer
-    dataset = build_dataset(
-        data_path=args.data_path,
-        train_batch_size=args.train_batch_size,
-        tokenizer=tokenizer,
-        image_size=args.image_size,
-        image_filter_size=args.image_filter_size,
+    tokenizer = TokenizerWrapper(latent_diffusion_with_loss.cond_stage_model.tokenizer)
+    dataset = ImageDataset(args.data_path, image_filter_size=args.image_filter_size if args.filter_small_size else 0)
+    dataset = build_dataloader(
+        dataset,
+        args.train_batch_size,
+        transforms=dataset.train_transforms(
+            target_size=args.image_size, tokenizer=tokenizer, random_crop=args.random_crop
+        ),
+        shuffle=True,
         device_num=device_num,
         rank_id=rank_id,
-        random_crop=args.random_crop,
-        filter_small_size=args.filter_small_size,
-        replace=args.replace_small_images,
-        enable_modelarts=args.enable_modelarts,
     )
 
     # lora injection
