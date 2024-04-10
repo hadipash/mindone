@@ -2,11 +2,11 @@ from mindspore import nn, ops
 
 
 class BlockwiseAttention(nn.Cell):
-    def __init__(self, dim_head: int, q_chunks: int, kv_chunks: int):
+    def __init__(self, head_dim: int, q_chunks: int, kv_chunks: int):
         super().__init__()
         self._q_chunks = q_chunks
         self._kv_chunks = kv_chunks
-        self.scale = dim_head**-0.5
+        self.scale = head_dim**-0.5
 
     def construct(self, q, k, v):
         if q.shape[1] % self._q_chunks:
@@ -116,12 +116,12 @@ if __name__ == "__main__":
     sys.path.append("../../../")
     from mindone.models.dit import Attention
 
-    context.set_context(
-        mode=context.PYNATIVE_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"}
-    )
     # context.set_context(
-    #     mode=context.GRAPH_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"}
+    #     mode=context.PYNATIVE_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"}
     # )
+    context.set_context(
+        mode=context.GRAPH_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"}
+    )
     set_seed(42)
 
     q_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
@@ -159,6 +159,9 @@ if __name__ == "__main__":
 
         attn1 = BlockwiseAttention(q_.shape[-1], 2, 2)
         attn2 = Attention(q_.shape[-1])
+
+        attn1.set_train(True)
+        attn2.set_train(True)
 
         def forward_attn1(q, k, v, label):
             z = attn1(q, k, v)
