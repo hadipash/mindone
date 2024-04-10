@@ -94,3 +94,69 @@ class BlockwiseAttention(nn.Cell):
                 dv[:, kv_step: kv_step + kv_size] += ops.matmul(exp_weights.swapaxes(2, 3), grad_chunk.swapaxes(1, 2)).swapaxes(1, 2)
 
         return dq, dk, dv
+
+
+if __name__ == '__main__':
+    # (b, n, h, d)
+    import numpy as np
+    from mindspore import context, grad, Tensor, float32, set_seed, nn
+
+    from mindone.models.dit import Attention
+
+    context.set_context(mode=context.PYNATIVE_MODE, pynative_synchronize=True, deterministic="ON")
+    # context.set_context(mode=context.GRAPH_MODE)
+    set_seed(42)
+
+    q_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
+    k_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
+    v_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
+
+    def _rearange_in(x: Tensor):
+        # (b, n, h, d) -> (b*h, n, d)
+        x = x.swapaxes(1, 2).reshape(-1, x.shape[1], x.shape[3])
+        return x
+
+    def _rearange_out(x, h):
+        # (b*h, n, d) -> (b, n, h, d)
+        x = x.reshape(-1, h, x.shape[1], x.shape[2]).swapaxes(1, 2)
+        return x
+
+    def test_forward():
+        attn1 = BlockwiseAttention(q_.shape[-1], 2, 2)
+        attn2 = Attention(q_.shape[-1])
+
+        out1 = attn1(q_, k_, v_)[0].asnumpy()
+        out2 = attn2(_rearange_in(q_), _rearange_in(k_), _rearange_in(v_), None)
+        out2 = _rearange_out(out2, q_.shape[2]).asnumpy()
+
+        print(np.allclose(out1, out2, atol=1e-5))
+        print(abs(out1 - out2).max())
+
+
+    def test_bprop():
+        labels = Tensor(np.ones((10, 256, 16, 128)), dtype=float32)
+
+        loss = nn.MSELoss()
+
+        attn1 = BlockwiseAttention(q_.shape[-1], 2, 2)
+        attn2 = Attention(q_.shape[-1])
+
+        def forward_attn1(q, k, v, label):
+            z = attn1(q, k, v)
+            loss_ = loss(z[0], label)
+            return loss_
+
+        def forward_attn2(q, k, v, label):
+            z = attn2(q, k, v, None)
+            z = _rearange_out(z, q_.shape[2])
+            loss_ = loss(z, label)
+            return loss_
+
+        grad1 = grad(forward_attn1)(q_, k_, v_, labels).asnumpy()
+        grad2 = grad(forward_attn2)(_rearange_in(q_), _rearange_in(k_), _rearange_in(v_), labels)
+        grad2 = _rearange_out(grad2, q_.shape[2]).asnumpy()
+
+        print(np.allclose(grad1, grad2, atol=1e-5))
+        print(abs(grad1 - grad2).max())
+
+    test_bprop()
