@@ -9,7 +9,8 @@ import mindspore as ms
 from mindspore import Tensor, nn, ops
 
 from .dit import GELU, FinalLayer, LabelEmbedder, LayerNorm, Mlp, Optional, TimestepEmbedder
-from .utils import constant_, exists, modulate, normal_, xavier_uniform_
+from .modules import Attention
+from .utils import constant_, modulate, normal_, xavier_uniform_
 
 __all__ = [
     "FiT",
@@ -54,26 +55,6 @@ def apply_rotary_emb(q: Tensor, k: Tensor, freqs_cis: Tensor) -> Tuple[Tensor, T
     q = ops.reshape(q, q_shape)
     k = ops.reshape(k, k_shape)
     return q, k
-
-
-class Attention(nn.Cell):
-    def __init__(self, dim_head: int, attn_drop: float = 0.0) -> None:
-        super().__init__()
-        self.scale = dim_head**-0.5
-        self.attn_drop = nn.Dropout(p=attn_drop)
-
-    def construct(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
-        sim = ops.BatchMatMul(transpose_b=True)(q, k) * self.scale
-
-        # use fp32 for exponential inside
-        sim = sim.to(ms.float32)
-        if exists(mask):
-            mask = mask[:, None, None, :]
-            sim = ops.masked_fill(sim, ~mask, -ms.numpy.inf)
-        attn = ops.softmax(sim, axis=-1).astype(v.dtype)
-        attn = self.attn_drop(attn)
-        out = ops.matmul(attn, v)
-        return out
 
 
 class SelfAttention(nn.Cell):

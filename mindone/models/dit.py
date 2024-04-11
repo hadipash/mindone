@@ -2,16 +2,14 @@ import math
 import numbers
 from typing import Optional, Tuple, Type, Union
 
-import numpy as np
-
 import mindspore as ms
 from mindspore import Parameter, Tensor, nn, ops
 from mindspore.common.initializer import XavierUniform, Zero, initializer
 
 from mindone.models.modules.flash_attention import FLASH_IS_AVAILABLE, MSFlashAttention
 
-from .modules import get_2d_sincos_pos_embed
-from .utils import constant_, exists, modulate, normal_, xavier_uniform_
+from .modules import Attention, get_2d_sincos_pos_embed
+from .utils import constant_, modulate, normal_, xavier_uniform_
 
 __all__ = [
     "DiT",
@@ -180,37 +178,6 @@ class Mlp(nn.Cell):
         x = self.fc2(x)
         x = self.drop(x)
         return x
-
-
-class Attention(nn.Cell):
-    def __init__(self, dim_head, attn_drop=0.0):
-        super().__init__()
-        self.softmax = ops.Softmax(axis=-1)
-        self.transpose = ops.Transpose()
-        self.scale = dim_head**-0.5
-        self.attn_drop = nn.Dropout(p=attn_drop)
-
-    def construct(self, q, k, v, mask):
-        sim = ops.matmul(q, self.transpose(k, (0, 2, 1))) * self.scale
-
-        if exists(mask):
-            mask = self.reshape(mask, (mask.shape[0], -1))
-            if sim.dtype == ms.float16:
-                finfo_type = np.float16
-            else:
-                finfo_type = np.float32
-            max_neg_value = -np.finfo(finfo_type).max
-            mask = mask.repeat(self.heads, axis=0)
-            mask = ops.expand_dims(mask, axis=1)
-            sim.masked_fill(mask, max_neg_value)
-
-        # use fp32 for exponential inside
-        attn = self.softmax(sim.astype(ms.float32)).astype(v.dtype)
-        attn = self.attn_drop(attn)
-
-        out = ops.matmul(attn, v)
-
-        return out
 
 
 class SelfAttention(nn.Cell):
