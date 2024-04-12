@@ -1,4 +1,6 @@
-from mindspore import nn, ops
+from typing import Tuple
+
+from mindspore import Tensor, nn, ops
 
 
 class BlockwiseAttention(nn.Cell):
@@ -7,8 +9,19 @@ class BlockwiseAttention(nn.Cell):
         self._q_chunks = q_chunks
         self._kv_chunks = kv_chunks
         self.scale = head_dim**-0.5
+        self.b_matmul = ops.BatchMatMul(transpose_b=True)
 
-    def construct(self, q, k, v):
+    def construct(self, q: Tensor, k: Tensor, v: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+
+        Args:
+            q (b*h, n, d):
+            k (b*h, n, d):
+            v (b*h, n, d):
+
+        Returns:
+
+        """
         if q.shape[1] % self._q_chunks:
             raise ValueError(
                 "Q's sequence length should be divisible by q_chunks"
@@ -23,18 +36,19 @@ class BlockwiseAttention(nn.Cell):
         q_size = q.shape[1] // self._q_chunks
         k_size = k.shape[1] // self._kv_chunks
 
-        nums, denoms, max_scores = [], [], []
-        for step in range(0, q.shape[1], q_size):
+        numerator = ops.zeros_like(q)
+        denominator = ops.zeros((q.shape[0], q.shape[1], 1), dtype=q.dtype)
+        max_scores = ops.zeros((q.shape[0], q.shape[1], 1), dtype=q.dtype)
+
+        for q_step in range(0, q.shape[1], q_size):
             prev_max_score, max_score = None, 0
-            numerator, denominator = 0, 0
-            q_chunk = q[:, step : step + q_size]
+            q_chunk = q[:, q_step : q_step + q_size]
 
-            for k_step in range(0, k.shape[1], k_size):
-                k_chunk = k[:, k_step : k_step + k_size]
-                v_chunk = v[:, k_step : k_step + k_size]
+            for kv_step in range(0, k.shape[1], k_size):
+                k_chunk = k[:, kv_step : kv_step + k_size]
+                v_chunk = v[:, kv_step : kv_step + k_size]
 
-                # 'bqhd,bkhd->bhqk'
-                attn_weights = ops.matmul(q_chunk.swapaxes(1, 2), k_chunk.permute((0, 2, 3, 1))) * self.scale
+                attn_weights = self.b_matmul(q_chunk, k_chunk) * self.scale
 
                 max_score = attn_weights.max(axis=-1, keepdims=True)
                 if prev_max_score is None:
@@ -43,25 +57,22 @@ class BlockwiseAttention(nn.Cell):
                 max_score = ops.stop_gradient(max_score)
 
                 exp_weights = ops.exp(attn_weights - max_score)
-                # 'bhqk,bkhd->bqhd'
-                exp_values = ops.matmul(exp_weights, v_chunk.permute(0, 2, 1, 3)).swapaxes(1, 2)
+                exp_values = ops.matmul(exp_weights, v_chunk)
                 correction = ops.exp(prev_max_score - max_score)
-                numerator = numerator * correction.swapaxes(1, 2) + exp_values
-                denominator = denominator * correction + exp_weights.sum(axis=-1, keepdims=True)
 
-            nums.append(numerator)
-            denoms.append(denominator.swapaxes(1, 2))
-            max_scores.append(max_score)
+                numerator[:, q_step : q_step + q_size] = (
+                    numerator[:, q_step : q_step + q_size] * correction + exp_values
+                )
+                denominator[:, q_step : q_step + q_size] = denominator[
+                    :, q_step : q_step + q_size
+                ] * correction + exp_weights.sum(axis=-1, keepdims=True)
+            max_scores[:, q_step : q_step + q_size] = max_score
 
-        nums = ops.concat(nums, axis=1)
-        denoms = ops.concat(denoms, axis=1)
-        max_scores = ops.concat(max_scores, axis=2)  # bhqk
-        out = nums / denoms
-
-        return out, nums, denoms, max_scores
+        out = numerator / denominator
+        return out, denominator, max_scores
 
     def bprop(self, q, k, v, out, dout):
-        out, num, denom, max_score = out
+        out, denominator, max_score = out
         out_grad = dout[0]
 
         q_size = q.shape[1] // self._q_chunks
@@ -71,42 +82,30 @@ class BlockwiseAttention(nn.Cell):
 
         for q_step in range(0, q.shape[1], q_size):
             q_chunk = q[:, q_step : q_step + q_size]
-            max_score_chunk = max_score[:, :, q_step : q_step + q_size]  # bhqk
-            denominator_chunk = denom[:, q_step : q_step + q_size]
+            max_score_chunk = max_score[:, q_step : q_step + q_size]
+            denominator_chunk = denominator[:, q_step : q_step + q_size]
             grad_chunk = out_grad[:, q_step : q_step + q_size]
             out_chunk = out[:, q_step : q_step + q_size]
-            dl_part = (grad_chunk * out_chunk).sum(axis=-1, keepdims=True).swapaxes(1, 2)  # "bqhd,bqhd->bhq"
+            dl_part = (grad_chunk * out_chunk).sum(axis=-1, keepdims=True)
 
             for kv_step in range(0, k.shape[1], kv_size):
                 k_chunk = k[:, kv_step : kv_step + kv_size]
                 v_chunk = v[:, kv_step : kv_step + kv_size]
 
-                # 'bqhd,bkhd->bhqk'
-                attn_weights = ops.matmul(q_chunk.swapaxes(1, 2), k_chunk.permute((0, 2, 3, 1))) * self.scale
+                attn_weights = self.b_matmul(q_chunk, k_chunk) * self.scale
+                exp_weights = ops.exp(attn_weights - max_score_chunk) / denominator_chunk
 
-                exp_weights = ops.exp(attn_weights - max_score_chunk) / denominator_chunk.swapaxes(1, 2)
-
-                ds = ops.matmul(grad_chunk.swapaxes(1, 2), v_chunk.permute((0, 2, 3, 1)))  # "bqhd,bkhd->bhqk"
+                ds = self.b_matmul(grad_chunk, v_chunk)
                 dl = (ds - dl_part) * exp_weights
 
-                # 'bhqk,bkhd->bqhd'
-                dq[:, q_step : q_step + q_size] += (
-                    ops.matmul(dl, k_chunk.permute(0, 2, 1, 3)).swapaxes(1, 2) * self.scale
-                )
-                # "bqhd,bhqk->bkhd"
-                dk[:, kv_step : kv_step + kv_size] += (
-                    ops.matmul(q_chunk.permute(0, 2, 3, 1), dl).permute(0, 3, 1, 2) * self.scale
-                )
-                # "bhqk,bqhd->bkhd"
-                dv[:, kv_step : kv_step + kv_size] += ops.matmul(
-                    exp_weights.swapaxes(2, 3), grad_chunk.swapaxes(1, 2)
-                ).swapaxes(1, 2)
+                dq[:, q_step : q_step + q_size] += ops.matmul(dl, k_chunk) * self.scale
+                dk[:, kv_step : kv_step + kv_size] += ops.matmul(q_chunk.swapaxes(1, 2), dl).swapaxes(1, 2) * self.scale
+                dv[:, kv_step : kv_step + kv_size] += ops.matmul(exp_weights.swapaxes(1, 2), grad_chunk)
 
         return dq, dk, dv
 
 
 if __name__ == "__main__":
-    # (b, n, h, d)
     import sys
 
     import numpy as np
@@ -114,7 +113,7 @@ if __name__ == "__main__":
     from mindspore import Tensor, context, float32, grad, nn, set_seed
 
     sys.path.append("../../../")
-    from mindone.models.dit import Attention
+    from mindone.models.modules import Attention
 
     # context.set_context(
     #     mode=context.PYNATIVE_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"}
@@ -124,19 +123,9 @@ if __name__ == "__main__":
     )
     set_seed(42)
 
-    q_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
-    k_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
-    v_ = Tensor(np.random.randn(10, 256, 16, 128), dtype=float32)
-
-    def _rearange_in(x: Tensor):
-        # (b, n, h, d) -> (b*h, n, d)
-        x = x.swapaxes(1, 2).reshape(-1, x.shape[1], x.shape[3])
-        return x
-
-    def _rearange_out(x, h):
-        # (b*h, n, d) -> (b, n, h, d)
-        x = x.reshape(-1, h, x.shape[1], x.shape[2]).swapaxes(1, 2)
-        return x
+    q_ = Tensor(np.random.randn(16, 256, 32), dtype=float32)
+    k_ = Tensor(np.random.randn(16, 256, 32), dtype=float32)
+    v_ = Tensor(np.random.randn(16, 256, 32), dtype=float32)
 
     def test_forward():
         attn1 = BlockwiseAttention(q_.shape[-1], 2, 2)
@@ -146,14 +135,13 @@ if __name__ == "__main__":
         attn2.set_train(False)
 
         out1 = attn1(q_, k_, v_)[0].asnumpy()
-        out2 = attn2(_rearange_in(q_), _rearange_in(k_), _rearange_in(v_), None)
-        out2 = _rearange_out(out2, q_.shape[2]).asnumpy()
+        out2 = attn2(q_, k_, v_, None).asnumpy()
 
         print(np.allclose(out1, out2, atol=1e-5))
         print(abs(out1 - out2).max())
 
     def test_bprop():
-        labels = Tensor(np.ones((10, 256, 16, 128)), dtype=float32)
+        labels = Tensor(np.ones((16, 256, 32)), dtype=float32)
 
         loss = nn.MSELoss()
 
@@ -170,13 +158,11 @@ if __name__ == "__main__":
 
         def forward_attn2(q, k, v, label):
             z = attn2(q, k, v, None)
-            z = _rearange_out(z, q_.shape[2])
             loss_ = loss(z, label)
             return loss_
 
         grad1 = grad(forward_attn1)(q_, k_, v_, labels).asnumpy()
-        grad2 = grad(forward_attn2)(_rearange_in(q_), _rearange_in(k_), _rearange_in(v_), labels)
-        grad2 = _rearange_out(grad2, q_.shape[2]).asnumpy()
+        grad2 = grad(forward_attn2)(q_, k_, v_, labels).asnumpy()
 
         print(np.allclose(grad1, grad2, atol=1e-5))
         print(abs(grad1 - grad2).max())

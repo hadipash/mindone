@@ -288,13 +288,14 @@ class SelfAttention(nn.Cell):
             # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
             out = out.transpose(0, 2, 1, 3).view(b, n, -1)
         elif self.attn_type == "blockwise":
-            # (b, n, h*d) -> (b, n, h, d)
-            q = q.view(q_b, q_n, h, -1)
-            k = k.view(k_b, k_n, h, -1)
-            v = v.view(v_b, v_n, h, -1)
+            # (b, n, h*d) -> (b*h, n, d)
+            q = self._rearange_in(q, h)
+            k = self._rearange_in(k, h)
+            v = self._rearange_in(v, h)
 
             out = self.attention(q, k, v)[0]
-            out = out.view(q_b, q_n, -1)
+            # (b*h, n, d) -> (b, n, h*d)
+            out = self._rearange_out(out, h)
         else:
             # (b, n, h*d) -> (b*h, n, d)
             q = self._rearange_in(q, h)
