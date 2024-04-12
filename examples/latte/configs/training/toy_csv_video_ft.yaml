@@ -10,7 +10,7 @@ model_name: "Latte-XL/2"
 pretrained_model_path: "path/to/dit/ckpt"
 vae_checkpoint: "models/sd-vae-ft-mse.ckpt"
 sd_scale_factor: 0.18215
-enable_flash_attention: False
+attention_type: "vanilla"   # vanilla, flash, blockwise
 dtype: "fp16"
 
 # data setting

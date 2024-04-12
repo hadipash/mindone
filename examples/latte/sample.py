@@ -113,10 +113,11 @@ def parse_args():
     parser.add_argument("--mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)")
     parser.add_argument("--seed", type=int, default=4, help="Inference seed")
     parser.add_argument(
-        "--enable_flash_attention",
-        default=False,
-        type=str2bool,
-        help="whether to enable flash attention. Default is False",
+        "--attention_type",
+        choices=["vanilla", "flash", "blockwise"],
+        default="vanilla",
+        type=str,
+        help="Attention type to use. Default is vanilla",
     )
     parser.add_argument(
         "--dtype",
@@ -176,7 +177,7 @@ if __name__ == "__main__":
     latte_model = Latte_models[args.model_name](
         input_size=latent_size,
         num_classes=args.num_classes,
-        block_kwargs={"enable_flash_attention": args.enable_flash_attention},
+        block_kwargs={"attn_type": args.attention_type},
         condition=args.condition,
         num_frames=args.num_frames,
         use_recompute=args.use_recompute,
@@ -257,6 +258,7 @@ if __name__ == "__main__":
             f"Sampling steps {args.sampling_steps}",
             f"DDIM sampling: {args.ddim_sampling}",
             f"CFG guidance scale: {args.guidance_scale}",
+            f"Attention type: {args.attention_type}",
         ]
     )
     key_info += "\n" + "=" * 50

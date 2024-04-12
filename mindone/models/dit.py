@@ -2,13 +2,16 @@ import math
 import numbers
 from typing import Optional, Tuple, Type, Union
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # FIXME: python 3.7
+
 import mindspore as ms
 from mindspore import Parameter, Tensor, nn, ops
 from mindspore.common.initializer import XavierUniform, Zero, initializer
 
-from mindone.models.modules.flash_attention import FLASH_IS_AVAILABLE, MSFlashAttention
-
-from .modules import Attention, get_2d_sincos_pos_embed
+from .modules import FLASH_IS_AVAILABLE, Attention, BlockwiseAttention, MSFlashAttention, get_2d_sincos_pos_embed
 from .utils import constant_, modulate, normal_, xavier_uniform_
 
 __all__ = [
@@ -185,21 +188,27 @@ class SelfAttention(nn.Cell):
     https://github.com/pprp/timm/blob/master/timm/models/vision_transformer.py
     Args:
         dim (int): hidden size.
-        num_heads (int): number of heads
-        qkv_bias (int): whether to use bias
-        attn_drop (bool): attention dropout
-        proj_drop (bool): projection dropout
+        num_heads (int): number of heads.
+        qkv_bias (int): whether to use bias.
+        attn_drop (float): attention dropout.
+        proj_drop (float): projection dropout.
+        dtype (mindspore.dtype): the network data type. Default: float32.
+        attn_type ("vanilla", "flash", "blockwise", or "ring"): the type of attention to use. Default: "vanilla".
+        q_chunks (int): the number of chunks for Q to be used in Blockwise Attention. Default: 4.
+        kv_chunks (int): the number of chunks for KV to be used in Blockwise Attention. Default: 4.
     """
 
     def __init__(
         self,
-        dim,
-        num_heads=8,
-        qkv_bias=False,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        dtype=ms.float32,
-        enable_flash_attention=False,
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        dtype: ms.dtype = ms.float32,
+        attn_type: Literal["vanilla", "flash", "blockwise", "ring"] = "vanilla",
+        q_chunks: int = 4,
+        kv_chunks: int = 4,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
@@ -217,18 +226,20 @@ class SelfAttention(nn.Cell):
         self.transpose = ops.Transpose()
         self.reshape = ops.Reshape()
 
-        self.attention = Attention(head_dim, attn_drop=attn_drop)
-
-        self.enable_flash_attention = (
-            enable_flash_attention and FLASH_IS_AVAILABLE and (ms.context.get_context("device_target") == "Ascend")
-        )
-
-        if self.enable_flash_attention:
-            self.flash_attention = MSFlashAttention(
+        self.attn_type = attn_type
+        if attn_type == "flash" and FLASH_IS_AVAILABLE:
+            self.attention = MSFlashAttention(
                 head_dim=head_dim, head_num=num_heads, fix_head_dims=[72], attention_dropout=attn_drop
             )
+        elif attn_type == "blockwise":
+            self.attention = BlockwiseAttention(head_dim=head_dim, q_chunks=q_chunks, kv_chunks=kv_chunks)
+        elif attn_type == "ring":
+            raise NotImplementedError("Ring attention is not supported yet.")
+        elif attn_type == "vanilla":
+            self.attn_type = "vanilla"
+            self.attention = Attention(head_dim, attn_drop=attn_drop)
         else:
-            self.flash_attention = None
+            raise ValueError(f"Unknown attention type {attn_type}.")
 
     @staticmethod
     def _rearange_in(x, h):
@@ -266,16 +277,24 @@ class SelfAttention(nn.Cell):
         head_dim = q.shape[-1] // h
 
         if (
-            self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and head_dim <= 256
+            self.attn_type == "flash" and q_n % 16 == 0 and k_n % 16 == 0 and head_dim <= 256
         ):  # TODO: why restrict head_dim?
             # reshape qkv shape ((b n h*d) -> (b h n d))and mask dtype for FA input format
             q = q.view(q_b, q_n, h, -1).transpose(0, 2, 1, 3)
             k = k.view(k_b, k_n, h, -1).transpose(0, 2, 1, 3)
             v = v.view(v_b, v_n, h, -1).transpose(0, 2, 1, 3)
-            out = self.flash_attention(q, k, v, mask)
+            out = self.attention(q, k, v, mask)
             b, h, n, d = out.shape
             # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
             out = out.transpose(0, 2, 1, 3).view(b, n, -1)
+        elif self.attn_type == "blockwise":
+            # (b, n, h*d) -> (b, n, h, d)
+            q = q.view(q_b, q_n, h, -1)
+            k = k.view(k_b, k_n, h, -1)
+            v = v.view(v_b, v_n, h, -1)
+
+            out = self.attention(q, k, v)[0]
+            out = out.view(q_b, q_n, -1)
         else:
             # (b, n, h*d) -> (b*h, n, d)
             q = self._rearange_in(q, h)

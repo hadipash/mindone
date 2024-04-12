@@ -150,10 +150,11 @@ def parse_train_args(parser):
         help="number of classes, applies only when condition is `class`",
     )
     parser.add_argument(
-        "--enable_flash_attention",
-        default=None,
-        type=str2bool,
-        help="whether to enable flash attention.",
+        "--attention_type",
+        choices=["vanilla", "flash", "blockwise"],
+        default="vanilla",
+        type=str,
+        help="Attention type to use. Default is vanilla",
     )
     parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
     parser.add_argument("--loss_scaler_type", default="dynamic", type=str, help="dynamic or static")

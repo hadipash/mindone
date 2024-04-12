@@ -67,7 +67,7 @@ def main(args):
     latte_model = Latte_models[args.model_name](
         input_size=latent_size,
         num_classes=args.num_classes,
-        block_kwargs={"enable_flash_attention": args.enable_flash_attention},
+        block_kwargs={"attn_type": args.attention_type},
         condition=args.condition,
         num_frames=args.num_frames,
         use_recompute=args.use_recompute,
@@ -280,7 +280,7 @@ def main(args):
                 f"Grad clipping: {args.clip_grad}",
                 f"Max grad norm: {args.max_grad_norm}",
                 f"EMA: {args.use_ema}",
-                f"Enable flash attention: {args.enable_flash_attention}",
+                f"Attention type: {args.attention_type}",
                 f"Use recompute: {args.use_recompute}",
                 f"Dataset sink: {args.dataset_sink_mode}",
             ]
