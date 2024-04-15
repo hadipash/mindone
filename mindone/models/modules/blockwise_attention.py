@@ -36,12 +36,12 @@ class BlockwiseAttention(nn.Cell):
         q_size = q.shape[1] // self._q_chunks
         k_size = k.shape[1] // self._kv_chunks
 
-        numerator = ops.zeros_like(q)
-        denominator = ops.zeros((q.shape[0], q.shape[1], 1), dtype=q.dtype)
-        max_scores = ops.zeros((q.shape[0], q.shape[1], 1), dtype=q.dtype)
-
+        # initialize variables as lists and concatenate them at the end, instead of using ops.zeros_like()
+        # because slicing and then updating tensors (ScatterNdUpdate) is slow.
+        nums, denoms, max_scores = [], [], []
         for q_step in range(0, q.shape[1], q_size):
             prev_max_score, max_score = None, 0
+            numerator, denominator = 0, 0
             q_chunk = q[:, q_step : q_step + q_size]
 
             for kv_step in range(0, k.shape[1], k_size):
@@ -57,19 +57,23 @@ class BlockwiseAttention(nn.Cell):
                 max_score = ops.stop_gradient(max_score)
 
                 exp_weights = ops.exp(attn_weights - max_score)
-                exp_values = ops.matmul(exp_weights, v_chunk)
                 correction = ops.exp(prev_max_score - max_score)
 
-                numerator[:, q_step : q_step + q_size] = (
-                    numerator[:, q_step : q_step + q_size] * correction + exp_values
-                )
-                denominator[:, q_step : q_step + q_size] = denominator[
-                    :, q_step : q_step + q_size
-                ] * correction + exp_weights.sum(axis=-1, keepdims=True)
-            max_scores[:, q_step : q_step + q_size] = max_score
+                numerator = numerator * correction + ops.matmul(exp_weights, v_chunk)
+                denominator = denominator * correction + exp_weights.sum(axis=-1, keepdims=True)
 
-        out = numerator / denominator
-        return out, denominator, max_scores
+                prev_max_score = max_score
+
+            nums.append(numerator)
+            denoms.append(denominator)
+            max_scores.append(max_score)
+
+        nums = ops.concat(nums, axis=1)
+        denoms = ops.concat(denoms, axis=1)
+        max_scores = ops.concat(max_scores, axis=1)
+        out = nums / denoms
+
+        return out, denoms, max_scores
 
     def bprop(self, q, k, v, out, dout):
         out, denominator, max_score = out
