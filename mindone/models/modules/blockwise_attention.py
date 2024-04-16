@@ -82,19 +82,20 @@ class BlockwiseAttention(nn.Cell):
         q_size = q.shape[1] // self._q_chunks
         kv_size = k.shape[1] // self._kv_chunks
 
-        dq, dk, dv = map(lambda x: ops.zeros_like(x), (q, k, v))
-
-        for q_step in range(0, q.shape[1], q_size):
-            q_chunk = q[:, q_step : q_step + q_size]
-            max_score_chunk = max_score[:, q_step : q_step + q_size]
-            denominator_chunk = denominator[:, q_step : q_step + q_size]
-            grad_chunk = out_grad[:, q_step : q_step + q_size]
-            out_chunk = out[:, q_step : q_step + q_size]
+        # initialize variables as lists and concatenate them at the end, instead of using ops.zeros_like()
+        # because slicing and then updating tensors (ScatterNdUpdate) is slow.
+        dq, dk, dv = [0] * self._q_chunks, [0] * self._kv_chunks, [0] * self._kv_chunks
+        for q_step in range(self._q_chunks):
+            q_chunk = q[:, q_step * q_size : (q_step + 1) * q_size]
+            max_score_chunk = max_score[:, q_step * q_size : (q_step + 1) * q_size]
+            denominator_chunk = denominator[:, q_step * q_size : (q_step + 1) * q_size]
+            grad_chunk = out_grad[:, q_step * q_size : (q_step + 1) * q_size]
+            out_chunk = out[:, q_step * q_size : (q_step + 1) * q_size]
             dl_part = (grad_chunk * out_chunk).sum(axis=-1, keepdims=True)
 
-            for kv_step in range(0, k.shape[1], kv_size):
-                k_chunk = k[:, kv_step : kv_step + kv_size]
-                v_chunk = v[:, kv_step : kv_step + kv_size]
+            for kv_step in range(self._kv_chunks):
+                k_chunk = k[:, kv_step * kv_size : (kv_step + 1) * kv_size]
+                v_chunk = v[:, kv_step * kv_size : (kv_step + 1) * kv_size]
 
                 attn_weights = self.b_matmul(q_chunk, k_chunk) * self.scale
                 exp_weights = ops.exp(attn_weights - max_score_chunk) / denominator_chunk
@@ -102,11 +103,11 @@ class BlockwiseAttention(nn.Cell):
                 ds = self.b_matmul(grad_chunk, v_chunk)
                 dl = (ds - dl_part) * exp_weights
 
-                dq[:, q_step : q_step + q_size] += ops.matmul(dl, k_chunk) * self.scale
-                dk[:, kv_step : kv_step + kv_size] += ops.matmul(q_chunk.swapaxes(1, 2), dl).swapaxes(1, 2) * self.scale
-                dv[:, kv_step : kv_step + kv_size] += ops.matmul(exp_weights.swapaxes(1, 2), grad_chunk)
+                dq[q_step] += ops.matmul(dl, k_chunk) * self.scale
+                dk[kv_step] += ops.matmul(q_chunk.swapaxes(1, 2), dl).swapaxes(1, 2) * self.scale
+                dv[kv_step] += ops.matmul(exp_weights.swapaxes(1, 2), grad_chunk)
 
-        return dq, dk, dv
+        return ops.concat(dq, axis=1), ops.concat(dk, axis=1), ops.concat(dv, axis=1)
 
 
 if __name__ == "__main__":
