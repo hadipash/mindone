@@ -9,7 +9,7 @@ class BlockwiseAttention(nn.Cell):
         self._q_chunks = q_chunks
         self._kv_chunks = kv_chunks
         self.scale = head_dim**-0.5
-        self.b_matmul = ops.BatchMatMul(transpose_b=True)
+        self.bmm = ops.BatchMatMul(transpose_b=True)
 
     def construct(self, q: Tensor, k: Tensor, v: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """
@@ -48,7 +48,7 @@ class BlockwiseAttention(nn.Cell):
                 k_chunk = k[:, kv_step : kv_step + k_size]
                 v_chunk = v[:, kv_step : kv_step + k_size]
 
-                attn_weights = self.b_matmul(q_chunk, k_chunk) * self.scale
+                attn_weights = self.bmm(q_chunk, k_chunk) * self.scale
 
                 max_score = attn_weights.max(axis=-1, keepdims=True)
                 if prev_max_score is None:
@@ -97,10 +97,10 @@ class BlockwiseAttention(nn.Cell):
                 k_chunk = k[:, kv_step * kv_size : (kv_step + 1) * kv_size]
                 v_chunk = v[:, kv_step * kv_size : (kv_step + 1) * kv_size]
 
-                attn_weights = self.b_matmul(q_chunk, k_chunk) * self.scale
+                attn_weights = self.bmm(q_chunk, k_chunk) * self.scale
                 exp_weights = ops.exp(attn_weights - max_score_chunk) / denominator_chunk
 
-                ds = self.b_matmul(grad_chunk, v_chunk)
+                ds = self.bmm(grad_chunk, v_chunk)
                 dl = (ds - dl_part) * exp_weights
 
                 dq[q_step] += ops.matmul(dl, k_chunk) * self.scale
