@@ -112,37 +112,6 @@ if __name__ == "__main__":
     sys.path.append("../../../")
     from mindone.models.dit import Attention
 
-    ms.set_seed(42)
-
-    class DistribExec(nn.Cell):
-        def __init__(self, model, rank_id, num_devices):
-            super().__init__()
-            self._model = model
-            self._rank_id = rank_id
-            self._num_devices = num_devices
-            self._broadcast = ops.Broadcast(0)
-            self._all_gather = ops.AllGather()
-
-        def construct(self, q, k, v):
-            q = self._broadcast((q,))[0]
-            k = self._broadcast((k,))[0]
-            v = self._broadcast((v,))[0]
-
-            q_size = q.shape[1] // self._num_devices
-            kv_size = k.shape[1] // self._num_devices
-
-            q = q[:, self._rank_id * q_size : (self._rank_id + 1) * q_size]
-            k = k[:, self._rank_id * kv_size : (self._rank_id + 1) * kv_size]
-            v = v[:, self._rank_id * kv_size : (self._rank_id + 1) * kv_size]
-
-            out, denominator, max_score = self._model(q, k, v)
-
-            out = ops.concat(self._all_gather(out).chunk(self._num_devices), axis=1)
-            denominator = ops.concat(self._all_gather(denominator).chunk(self._num_devices), axis=1)
-            max_score = ops.concat(self._all_gather(max_score).chunk(self._num_devices), axis=1)
-
-            return out, denominator, max_score
-
     device_id = int(os.getenv("DEVICE_ID"))
     ms.set_context(
         mode=ms.GRAPH_MODE,
@@ -154,67 +123,64 @@ if __name__ == "__main__":
     device_num = get_group_size()
     rank_id = get_rank()
 
-    ms.set_auto_parallel_context(
-        parallel_mode=ms.ParallelMode.HYBRID_PARALLEL,
-        # gradients_mean=True,
-        device_num=device_num,
-        # search_mode="sharding_propagation"
-        # enable_parallel_optimizer=True
-    )
+    ms.set_seed(42)
 
-    q_ = ms.Tensor(np.random.randn(16, 256, 32), dtype=ms.float32)
-    k_ = ms.Tensor(np.random.randn(16, 256, 32), dtype=ms.float32)
-    v_ = ms.Tensor(np.random.randn(16, 256, 32), dtype=ms.float32)
+    seq_len = 256
+    chunk_size = seq_len // device_num
+
+    q_ = ms.Tensor(np.random.randn(16, seq_len, 32), dtype=ms.float32)
+    k_ = ms.Tensor(np.random.randn(16, seq_len, 32), dtype=ms.float32)
+    v_ = ms.Tensor(np.random.randn(16, seq_len, 32), dtype=ms.float32)
+    labels = ms.Tensor(np.ones((16, seq_len, 32)), dtype=ms.float32)
 
     ra = RingAttention(dim_head=q_.shape[2], seq_len=q_.shape[1], rank_id=rank_id, num_devices=device_num)
-    ra_dist = DistribExec(ra, rank_id, device_num)
+    vanilla_attn = Attention(q_.shape[-1])
 
-    print("Forward pass...")
-    ra_dist.set_train(False)
-    out1_fwd = ra_dist(q_, k_, v_)[0].asnumpy()
+    def forward_test():
+        vanilla_attn.set_train(False)
+        ra.set_train(False)
 
-    print("Backward pass...")
-    ra_dist.set_train(True)
+        out1_fwd = ra(
+            q_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+            k_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+            v_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+        )[0].asnumpy()
 
-    labels = ms.Tensor(np.ones((16, 256, 32)), dtype=ms.float32)
-    loss = nn.MSELoss()
+        out2 = vanilla_attn(q_, k_, v_, None)[:, rank_id * chunk_size : (rank_id + 1) * chunk_size].asnumpy()
 
-    def forward_ra(q, k, v, label):
-        z = ra_dist(q, k, v)
-        loss_ = loss(z[0], label)
-        return loss_
+        print("rank_id: ", rank_id, np.allclose(out1_fwd, out2, atol=1e-6, rtol=0))
+        print("rank_id: ", rank_id, f"Absolute error: {abs(out1_fwd - out2).max()}")
 
-    grad1 = grad(forward_ra, grad_position=(0, 1, 2))(q_, k_, v_, labels)
+    def bprop_test():
+        loss = nn.MSELoss()
 
-    if rank_id == 0:
-        vanilla_attn = Attention(q_.shape[-1])
+        ra.set_train(True)
+        vanilla_attn.set_train(True)
 
-        def forward_test():
-            vanilla_attn.set_train(False)
+        def forward_ra(q, k, v, label):
+            z = ra(q, k, v)
+            return loss(z[0], label)
 
-            out2 = vanilla_attn(q_, k_, v_, None).asnumpy()
+        def forward_vanilla(q, k, v, label):
+            z = vanilla_attn(q, k, v, None)
+            return loss(z, label)
 
-            print("-" * 100)
-            print(np.allclose(out1_fwd, out2, atol=1e-6, rtol=0))
-            print(abs(out1_fwd - out2).max())
+        grad1 = grad(forward_ra, grad_position=(0, 1, 2))(
+            q_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+            k_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+            v_[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+            labels[:, rank_id * chunk_size : (rank_id + 1) * chunk_size],
+        )
 
-        def bprop_test():
-            vanilla_attn.set_train(True)
+        grad2 = grad(forward_vanilla, grad_position=(0, 1, 2))(q_, k_, v_, labels)
 
-            def forward_vanilla(q, k, v, label):
-                z = vanilla_attn(q, k, v, None)
-                loss_ = loss(z, label)
-                return loss_
+        for g1, g2 in zip(grad1, grad2):
+            g1 = g1.asnumpy() / device_num  # gradients mean
+            g2 = g2.asnumpy()[:, rank_id * chunk_size : (rank_id + 1) * chunk_size]
+            print("rank_id: ", rank_id, np.allclose(g1, g2, atol=1e-10, rtol=0))
+            print("rank_id: ", rank_id, f"Absolute error: {abs(g1 - g2).max()}")
 
-            grad2 = grad(forward_vanilla, grad_position=(0, 1, 2))(q_, k_, v_, labels)
-
-            print("-" * 100)
-            for g1, g2 in zip(grad1, grad2):
-                g1, g2 = g1.asnumpy(), g2.asnumpy()
-                print(np.allclose(g1, g2, atol=1e-10, rtol=0))
-                print(f"Absolute error: {abs(g1 - g2).max()}")
-
-        print("Testing forward pass...")
-        forward_test()
-        print("Testing backward pass...")
-        bprop_test()
+    print("Testing forward pass...")
+    forward_test()
+    print("Testing backward pass...")
+    bprop_test()
