@@ -1,6 +1,8 @@
 import albumentations
 import cv2
 
+from mindspore.dataset.core.config import set_debug_mode
+
 
 def create_video_transforms(
     h, w, num_frames, interpolation="bicubic", backend="al", use_safer_augment=True, apply_same_transform=True
@@ -75,7 +77,8 @@ def create_video_transforms(
     return pixel_transforms
 
 
-def get_dataset(dataset_name, config, device_num=1, rank_id=0, return_dataset=False, **kwargs):
+def get_dataset(dataset_name, config, device_num=1, rank_id=0, return_dataset=False, debug=False, **kwargs):
+    set_debug_mode(debug)
     if dataset_name == "sky":
         from .sky_dataset import create_dataloader
     elif dataset_name == "csv":

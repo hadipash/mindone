@@ -57,6 +57,7 @@ def main(args):
         device_target=args.device_target,
         max_device_memory=args.max_device_memory,
         ascend_config=None if args.precision_mode is None else {"precision_mode": args.precision_mode},
+        debug=args.debug,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
@@ -135,6 +136,7 @@ def main(args):
         tokenizer=tokenizer,
         device_num=device_num,
         rank_id=rank_id,
+        debug=args.debug,
     )
     dataset_size = dataset.get_dataset_size()
 

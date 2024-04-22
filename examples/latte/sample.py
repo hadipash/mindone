@@ -34,9 +34,10 @@ def init_env(args):
     ms.set_context(mode=args.mode)  # needed for MS2.0
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.set_context(
-        mode=args.mode,
+        mode=args.mode or int(args.debug),
         device_target=args.device_target,
         device_id=device_id,
+        pynative_synchronize=args.debug,
     )
     if args.precision_mode is not None:
         ms.set_context(ascend_config={"precision_mode": args.precision_mode})
@@ -112,6 +113,7 @@ def parse_args():
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)")
     parser.add_argument("--seed", type=int, default=4, help="Inference seed")
+    parser.add_argument("--debug", type=str2bool, default=False, help="Run inference in debug mode")
     parser.add_argument(
         "--attention_type",
         choices=["vanilla", "flash", "blockwise"],

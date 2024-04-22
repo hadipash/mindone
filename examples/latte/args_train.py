@@ -175,6 +175,7 @@ def parse_train_args(parser):
     )
 
     parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
+    parser.add_argument("--debug", default=False, type=str2bool, help="Run training in debug mode")
     parser.add_argument(
         "--log_level",
         type=str,
