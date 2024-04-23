@@ -2,12 +2,12 @@ from mindspore import dtype, grad, nn, ops
 
 
 class RingAttention(nn.Cell):
-    def __init__(self, dim_head: int, seq_len: int, algorithm: str = "vanilla", rank_id: int = 0, num_devices: int = 1):
+    def __init__(self, head_dim: int, seq_len: int, algorithm: str = "vanilla", rank_id: int = 0, num_devices: int = 1):
         super().__init__()
         self._rank_id = rank_id
         self._num_devices = num_devices
 
-        self.scale = dim_head**-0.5
+        self.scale = head_dim**-0.5
         self.bmm = ops.BatchMatMul(transpose_b=True)
 
         # distributed part
@@ -17,8 +17,8 @@ class RingAttention(nn.Cell):
         self._exchange = ops.NeighborExchange(
             send_rank_ids=[send_rank],
             recv_rank_ids=[recv_rank],
-            recv_shapes=([16, seq_len // num_devices, dim_head],),
-            send_shapes=([16, seq_len // num_devices, dim_head],),
+            recv_shapes=([4096, seq_len // num_devices, head_dim],),  # FIXME
+            send_shapes=([4096, seq_len // num_devices, head_dim],),
             recv_type=dtype.float32,
         )
         self._depend = ops.Depend()
@@ -35,8 +35,8 @@ class RingAttention(nn.Cell):
             # initiate KV exchange before calculating attention as calculation takes more time than sending data
             if step < self._num_devices - 1:  # no need to exchange in the penultimate step
                 # BUG [MS2.2.10]: can't exchange both tensors at the same time
-                next_k = self._exchange((k,))[0]
-                next_v = self._exchange((v,))[0]
+                next_k = self._exchange((k,))[0].astype(q.dtype)
+                next_v = self._exchange((v,))[0].astype(q.dtype)
 
             # FIXME: causal attention doesn't work in a distributed setting
             attn_weights = self.bmm(q, k) * self.scale
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     v_ = ms.Tensor(np.random.randn(16, seq_len, 32), dtype=ms.float32)
     labels = ms.Tensor(np.ones((16, seq_len, 32)), dtype=ms.float32)
 
-    ra = RingAttention(dim_head=q_.shape[2], seq_len=q_.shape[1], rank_id=rank_id, num_devices=device_num)
+    ra = RingAttention(head_dim=q_.shape[2], seq_len=q_.shape[1], rank_id=rank_id, num_devices=device_num)
     vanilla_attn = Attention(q_.shape[-1])
 
     def forward_test():
