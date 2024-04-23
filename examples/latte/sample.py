@@ -3,7 +3,6 @@ import datetime
 import logging
 import os
 import sys
-import time
 
 import yaml
 from pipelines import InferPipeline
@@ -41,7 +40,15 @@ def init_env(args):
     )
     if args.precision_mode is not None:
         ms.set_context(ascend_config={"precision_mode": args.precision_mode})
-    return device_id
+
+    rank_id, device_num = 0, 1
+    if args.distributed_seq:
+        ms.set_auto_parallel_context(parallel_mode=ms.ParallelMode.HYBRID_PARALLEL)
+        ms.communication.init()
+        rank_id = ms.communication.get_rank()
+        device_num = ms.communication.get_group_size()
+
+    return device_id, rank_id, device_num
 
 
 def parse_args():
@@ -112,6 +119,9 @@ def parse_args():
     # MS new args
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)")
+    parser.add_argument(
+        "--distributed_seq", type=str2bool, default=False, help="Run inference in distributed sequence mode"
+    )
     parser.add_argument("--seed", type=int, default=4, help="Inference seed")
     parser.add_argument("--debug", type=str2bool, default=False, help="Run inference in debug mode")
     parser.add_argument(
@@ -169,8 +179,13 @@ if __name__ == "__main__":
 
     # 1. init env
     args = parse_args()
-    init_env(args)
+    device_id, rank_id, device_num = init_env(args)
     set_random_seed(args.seed)
+
+    if args.num_frames % device_num:
+        raise ValueError(
+            f"The number of frames to generate ({args.num_frames}) must be a multiple of the device count ({device_num})."
+        )
 
     # 2. model initiate and weight loading
     # 2.1 latte
@@ -180,10 +195,13 @@ if __name__ == "__main__":
         input_size=latent_size,
         num_classes=args.num_classes,
         block_kwargs={"attn_type": args.attention_type},
+        temp_block_kwargs={"attn_type": "ring"} if args.distributed_seq else {},
         condition=args.condition,
         num_frames=args.num_frames,
         use_recompute=args.use_recompute,
         patch_embedder=args.patch_embedder,
+        rank_id=rank_id,
+        device_num=device_num,
     )
 
     if args.dtype == "fp16":
@@ -233,7 +251,7 @@ if __name__ == "__main__":
     else:
         y, y_null = None, None
         n = args.num_samples
-    z = ops.randn((n, args.num_frames, 4, latent_size, latent_size), dtype=ms.float32)
+    z = ops.randn((n, args.num_frames // device_num, 4, latent_size, latent_size), dtype=ms.float32)
     # 3. build inference pipeline
     pipeline = InferPipeline(
         latte_model,
@@ -242,20 +260,20 @@ if __name__ == "__main__":
         num_inference_steps=args.sampling_steps,
         guidance_rescale=args.guidance_scale,
         ddim_sampling=args.ddim_sampling,
+        distributed_seq=args.distributed_seq,
+        device_num=device_num,
     )
 
     # 4. print key info
-    num_params_vae, num_params_vae_trainable = count_params(vae)
-    num_params_latte, num_params_latte_trainable = count_params(latte_model)
+    num_params_vae, _ = count_params(vae)
+    num_params_latte, _ = count_params(latte_model)
     num_params = num_params_vae + num_params_latte
-    num_params_trainable = num_params_vae_trainable + num_params_latte_trainable
     key_info = "Key Settings:\n" + "=" * 50 + "\n"
     key_info += "\n".join(
         [
             f"MindSpore mode[GRAPH(0)/PYNATIVE(1)]: {args.mode}",
             f"Num of samples: {n}",
             f"Num params: {num_params:,} (latte: {num_params_latte:,}, vae: {num_params_vae:,})",
-            f"Num trainable params: {num_params_trainable:,}",
             f"Use model dtype: {model_dtype}",
             f"Sampling steps {args.sampling_steps}",
             f"DDIM sampling: {args.ddim_sampling}",
@@ -274,16 +292,13 @@ if __name__ == "__main__":
     inputs["scale"] = args.guidance_scale
 
     logger.info(f"Sampling for {n} samples with condition {args.condition}")
-    start_time = time.time()
-
-    # infer
     x_samples = pipeline(inputs)
-    x_samples = x_samples.asnumpy()
 
-    end_time = time.time()
+    if rank_id == 0:
+        x_samples = x_samples.asnumpy()
 
-    # save result
-    for i in range(n):
-        save_fp = f"{save_dir}/{i}.gif"
-        save_videos(x_samples[i : i + 1], save_fp, loop=0)
-        logger.info(f"save to {save_fp}")
+        # save result
+        for i in range(n):
+            save_fp = f"{save_dir}/{i}.gif"
+            save_videos(x_samples[i : i + 1], save_fp, loop=0)
+            logger.info(f"save to {save_fp}")

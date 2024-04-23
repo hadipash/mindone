@@ -1,14 +1,22 @@
-from abc import ABC
-
 from diffusion import create_diffusion
 
 import mindspore as ms
-from mindspore import ops
+from mindspore import nn, ops
 
 __all__ = ["InferPipeline"]
 
 
-class InferPipeline(ABC):
+class Collate(nn.Cell):
+    def __init__(self, device_num: int):
+        super().__init__()
+        self._all_gather = ops.AllGather()
+        self._device_num = device_num
+
+    def construct(self, x: ms.Tensor) -> ms.Tensor:
+        return ops.concat(self._all_gather(x).chunk(self._device_num), axis=1)
+
+
+class InferPipeline:
     """An Inference pipeline for diffusion model
 
     Args:
@@ -29,6 +37,8 @@ class InferPipeline(ABC):
         guidance_rescale=1.0,
         num_inference_steps=50,
         ddim_sampling=True,
+        distributed_seq: bool = False,
+        device_num: int = 1,
     ):
         super().__init__()
         self.model = model
@@ -47,6 +57,10 @@ class InferPipeline(ABC):
             self.sampling_func = self.diffusion.ddim_sample_loop
         else:
             self.sampling_func = self.diffusion.p_sample_loop
+
+        self._collate = None
+        if distributed_seq:
+            self._collate = Collate(device_num)
 
     @ms.jit
     def vae_encode(self, x):
@@ -123,4 +137,8 @@ class InferPipeline(ABC):
             # latents: (b f c h w)
             images = self.vae_decode_video(latents)
             # output (b, f, h, w, 3)
+
+        if self._collate is not None:
+            images = self._collate(images)
+
         return images

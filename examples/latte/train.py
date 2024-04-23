@@ -69,6 +69,7 @@ def main(args):
         input_size=latent_size,
         num_classes=args.num_classes,
         block_kwargs={"attn_type": args.attention_type},
+        temp_block_kwargs={"attn_type": "ring"} if args.distributed_seq else {},
         condition=args.condition,
         num_frames=args.num_frames,
         use_recompute=args.use_recompute,

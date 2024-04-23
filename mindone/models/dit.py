@@ -11,7 +11,14 @@ import mindspore as ms
 from mindspore import Parameter, Tensor, nn, ops
 from mindspore.common.initializer import XavierUniform, Zero, initializer
 
-from .modules import FLASH_IS_AVAILABLE, Attention, BlockwiseAttention, MSFlashAttention, get_2d_sincos_pos_embed
+from .modules import (
+    FLASH_IS_AVAILABLE,
+    Attention,
+    BlockwiseAttention,
+    MSFlashAttention,
+    RingAttention,
+    get_2d_sincos_pos_embed,
+)
 from .utils import constant_, modulate, normal_, xavier_uniform_
 
 __all__ = [
@@ -234,7 +241,13 @@ class SelfAttention(nn.Cell):
         elif attn_type == "blockwise":
             self.attention = BlockwiseAttention(head_dim=head_dim, q_chunks=q_chunks, kv_chunks=kv_chunks)
         elif attn_type == "ring":
-            raise NotImplementedError("Ring attention is not supported yet.")
+            # FIXME: hard code
+            self.attention = RingAttention(
+                head_dim=head_dim,
+                seq_len=16,
+                rank_id=ms.communication.get_rank(),
+                num_devices=ms.communication.get_group_size(),
+            )
         elif attn_type == "vanilla":
             self.attn_type = "vanilla"
             self.attention = Attention(head_dim, attn_drop=attn_drop)
@@ -287,7 +300,7 @@ class SelfAttention(nn.Cell):
             b, h, n, d = out.shape
             # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
             out = out.transpose(0, 2, 1, 3).view(b, n, -1)
-        elif self.attn_type == "blockwise":
+        elif self.attn_type in ["blockwise", "ring"]:
             # (b, n, h*d) -> (b*h, n, d)
             q = self._rearange_in(q, h)
             k = self._rearange_in(k, h)

@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional
 
 import mindspore as ms
 from mindspore import Tensor, nn, ops
@@ -25,7 +26,7 @@ class Latte(nn.Cell):
         class_dropout_prob (float, default=0.1): The dropout probability for the class labels in the label embedder.
         num_classes (int, default=1000): The number of classes of the input labels.
         learn_sigma (bool, default=True): Whether to learn the diffusion model's sigma parameter.
-        block_kwargs (dict, default={}): Additional keyword arguments for the Transformer blocks. for example, {'enable_flash_attention':True}
+        block_kwargs (dict, optional): Additional keyword arguments for the Transformer blocks. For example, {'attn_type':'flash'}
         condition (str, default=None): The type of conditions in [None, 'text', 'class']. If it is None, Latte is a un-conditional video generator.
             If it is 'text', it accepts text embeddings (B, T, D) as conditions, and generates videos. T: number of tokens. D: embedding dimension.
             If it is 'class', it accepts class labels (B, ) as conditions, and generates videos.
@@ -45,10 +46,13 @@ class Latte(nn.Cell):
         class_dropout_prob=0.1,
         num_classes=1000,
         learn_sigma=True,
-        block_kwargs={},
+        block_kwargs: Optional[dict] = None,
+        temp_block_kwargs: Optional[dict] = None,
         condition=None,
         patch_embedder="conv",
         use_recompute=False,
+        rank_id: int = 0,
+        device_num: int = 1,
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -59,6 +63,8 @@ class Latte(nn.Cell):
         self.num_classes = num_classes
         self.use_recompute = use_recompute
         self.patch_embedder = patch_embedder
+        self.rank_id = rank_id
+        self.num_devices = device_num
 
         if condition is not None:
             assert isinstance(condition, str), f"Expect that the condition type is a string, but got {type(condition)}"
@@ -84,8 +90,13 @@ class Latte(nn.Cell):
         self.pos_embed = ms.Parameter(ops.zeros((1, num_patches, hidden_size), dtype=ms.float32), requires_grad=False)
         self.temp_embed = ms.Parameter(ops.zeros((1, num_frames, hidden_size), dtype=ms.float32), requires_grad=False)
 
+        block_kwargs = block_kwargs or {}
+        temp_block_kwargs = temp_block_kwargs or block_kwargs
         self.blocks = nn.CellList(
-            [DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, **block_kwargs) for _ in range(depth)]
+            [
+                DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio, **(temp_block_kwargs if i % 2 else block_kwargs))
+                for i in range(depth)
+            ]
         )
 
         self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
@@ -187,7 +198,8 @@ class Latte(nn.Cell):
         # time embeddings
         t = self.t_embedder(t)  # (N, D)
         # (N, D) -> (N*num_frames, D)
-        t_spatial = t.repeat_interleave(repeats=self.temp_embed.shape[1], dim=0)
+        chunk_size = self.temp_embed.shape[1] // self.num_devices
+        t_spatial = t.repeat_interleave(repeats=chunk_size, dim=0)
         # (N, D) -> (N*T, D)
         t_temp = t.repeat_interleave(repeats=self.pos_embed.shape[1], dim=0)
 
@@ -221,7 +233,7 @@ class Latte(nn.Cell):
             )
             # add time embed
             if i == 0:
-                x = x + self.temp_embed
+                x = x + self.temp_embed[:, self.rank_id * chunk_size : (self.rank_id + 1) * chunk_size]
 
             c = self.get_condition_embed(t_temp, y_temp, text_embed_temp)
             x = temp_block(x, c)
