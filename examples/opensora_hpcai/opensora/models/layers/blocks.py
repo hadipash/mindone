@@ -505,11 +505,6 @@ class PatchEmbed(nn.Cell):
 
     def construct(self, x: Tensor) -> Tensor:
         b, c, h, w = x.shape
-        if self.image_size is not None:
-            assert (h, w) == (
-                self.image_size[0],
-                self.image_size[1],
-            ), f"Input height and width ({h},{w}) doesn't match model ({self.image_size[0]},{self.image_size[1]})."
         x = self.proj(x)
         x = ops.reshape(x, (b, self.embed_dim, -1))
         x = ops.transpose(x, (0, 2, 1))  # B Ph*Pw C
