@@ -9,7 +9,7 @@ from .dataset import BaseDataset
 
 def create_dataloader(
     dataset: BaseDataset,
-    batch_size: int,
+    batch_size: int = 1,
     transforms: Optional[Union[List[dict], dict]] = None,
     project_columns: Optional[List[str]] = None,
     shuffle: bool = False,
@@ -30,7 +30,7 @@ def create_dataloader(
 
     Args:
         dataset: A dataset instance, must have `output_columns` member.
-        batch_size: Number of samples per batch.
+        batch_size: Number of samples per batch. Set to 0 to disable batching. Default is 1.
         transforms: Optional transformations to apply to the dataset. It can be a list of transform dictionaries or
                     a single transform dictionary. The dictionary must have the following structure:
                     {
@@ -98,7 +98,9 @@ def create_dataloader(
 
     if project_columns:
         dataloader = dataloader.project(project_columns)
-    dataloader = dataloader.batch(batch_size, drop_remainder=drop_remainder, num_parallel_workers=num_workers_batch)
+
+    if batch_size > 0:
+        dataloader = dataloader.batch(batch_size, drop_remainder=drop_remainder, num_parallel_workers=num_workers_batch)
 
     # for sp
     # dataloader = dataloader.map(operations=[SeqRearrange(rank_id % 4, 4), ], input_columns=["video"], output_columns=["video"])

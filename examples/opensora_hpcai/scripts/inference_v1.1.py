@@ -153,7 +153,7 @@ def main(args):
     model_args["fps"] = Tensor([args.fps] * args.batch_size, dtype=ms.float32)
 
     # 3.2 reference
-    if args.reference_path is not None:
+    if args.reference_path is not None and not (len(args.reference_path) == 1 and args.reference_path[0] == ""):
         assert len(args.reference_path) == len(
             captions
         ), f"Reference path mismatch: {len(args.reference_path)} != {len(captions)}"
@@ -192,7 +192,14 @@ def main(args):
         for ref in references:
             if ref is not None:
                 for k in range(len(ref)):
-                    ref[k] = pipeline.vae_encode(Tensor(ref[k])).asnumpy().swapaxes(0, 1)
+                    try:
+                        ref[k] = pipeline.vae_encode(Tensor(ref[k])).asnumpy().swapaxes(0, 1)
+                    except RuntimeError as e:
+                        logger.error(
+                            f"Failed to embed reference video {args.reference_path[i : i + args.batch_size][k]}."
+                            f" Try reducing `vae_micro_batch_size`."
+                        )
+                        raise e
 
         latents, videos = None, []
         for loop_i in range(args.loop):
