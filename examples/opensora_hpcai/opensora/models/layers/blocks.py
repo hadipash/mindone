@@ -164,7 +164,7 @@ class MultiHeadCrossAttention(nn.Cell):
         # 2+: mask adaptation for multi-head attention
         if mask is not None:
             # flip mask, since ms FA treats 1 as discard, 0 as retain.
-            mask = 1 - mask
+            mask = ops.logical_not(mask.to(ms.bool_)).to(ms.uint8)
 
         # 3. attn compute
         if self.enable_flash_attention:
@@ -269,7 +269,7 @@ class SelfAttention(nn.Cell):
 
         # mask process
         if mask is not None:
-            mask = 1 - mask
+            mask = ops.logical_not(mask.to(ms.bool_)).to(ms.uint8)
 
         if self.enable_flash_attention:
             if mask is not None:
@@ -505,11 +505,11 @@ class PatchEmbed(nn.Cell):
 
     def construct(self, x: Tensor) -> Tensor:
         b, c, h, w = x.shape
-        if self.image_size is not None:
-            assert (h, w) == (
-                self.image_size[0],
-                self.image_size[1],
-            ), f"Input height and width ({h},{w}) doesn't match model ({self.image_size[0]},{self.image_size[1]})."
+        # if self.image_size is not None:
+        #     assert (h, w) == (
+        #         self.image_size[0],
+        #         self.image_size[1],
+        #     ), f"Input height and width ({h},{w}) doesn't match model ({self.image_size[0]},{self.image_size[1]})."
         x = self.proj(x)
         x = ops.reshape(x, (b, self.embed_dim, -1))
         x = ops.transpose(x, (0, 2, 1))  # B Ph*Pw C

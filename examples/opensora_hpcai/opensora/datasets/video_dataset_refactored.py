@@ -4,7 +4,7 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -30,6 +30,19 @@ def create_infer_transforms(target_size: Tuple[int, int], interpolation=Inter.BI
             lambda x: np.transpose(x, (0, 3, 1, 2)),  # ms.HWC2CHW() doesn't support 4D data
         ]
     )
+
+
+class VariableResizeAndCrop:
+    def __init__(self, sizes: Union[List[Tuple[int, int]], Tuple[int, int]]):
+        if isinstance(sizes, tuple):
+            sizes = [sizes]
+        self._transforms = [
+            Compose([Resize(min(size), interpolation=Inter.BILINEAR), CenterCrop(size)]) for size in sizes
+        ]
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        transform = random.choice(self._transforms)
+        return transform(x)
 
 
 class VideoDatasetRefactored(BaseDataset):
@@ -125,7 +138,7 @@ class VideoDatasetRefactored(BaseDataset):
         return len(self._data)
 
     def train_transforms(
-        self, target_size: Tuple[int, int], tokenizer: Optional[Callable[[str], np.ndarray]] = None
+        self, target_size: List[Tuple[int, int]], tokenizer: Optional[Callable[[str], np.ndarray]] = None
     ) -> List[dict]:
         transforms = []
         vae_downsample_rate = self._vae_downsample_rate
@@ -134,8 +147,7 @@ class VideoDatasetRefactored(BaseDataset):
             transforms.append(
                 {
                     "operations": [
-                        Resize(min(target_size), interpolation=Inter.BILINEAR),
-                        CenterCrop(target_size),
+                        VariableResizeAndCrop(target_size),
                         lambda x: (x / 255.0).astype(np.float32),  # ms.ToTensor() doesn't support 4D data
                         Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
                         lambda x: np.transpose(x, (0, 3, 1, 2)),  # ms.HWC2CHW() doesn't support 4D data

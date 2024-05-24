@@ -318,12 +318,13 @@ def main(args):
             output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
         )
 
+        # FIXME: temp test for dynamic input shape
+        sizes = [(1024, 576), (1024, 1024), (576, 1024)]
+
         dataloader = create_dataloader(
             dataset,
             batch_size=args.batch_size,
-            transforms=dataset.train_transforms(
-                target_size=(img_h, img_w), tokenizer=None  # Tokenizer isn't supported yet
-            ),
+            transforms=dataset.train_transforms(target_size=sizes, tokenizer=None),  # Tokenizer isn't supported yet
             shuffle=True,
             device_num=device_num,
             rank_id=rank_id,
