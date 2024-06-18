@@ -400,13 +400,6 @@ class T2IFinalLayer(nn.Cell):
         self.d_t = d_t
         self.d_s = d_s
 
-    @staticmethod
-    def t_mask_select(x_mask: Tensor, x: Tensor, masked_x: Tensor, T: int, S: int) -> Tensor:
-        x = x.reshape(x.shape[0], T, S, x.shape[-1])  # B (T S) C -> B T S C
-        masked_x = masked_x.reshape(masked_x.shape[0], T, S, masked_x.shape[-1])  # B (T S) C -> B T S C
-        x = ops.where(x_mask[:, :, None, None], x, masked_x)  # x_mask: [B, T]
-        return x.reshape(x.shape[0], T * S, x.shape[-1])  # B T S C -> B (T S) C
-
     def construct(
         self,
         x: Tensor,
@@ -424,7 +417,7 @@ class T2IFinalLayer(nn.Cell):
         if frames_mask is not None:
             shift_zero, scale_zero = (self.scale_shift_table[None] + t0[:, None]).chunk(2, axis=1)
             x_zero = t2i_modulate(self.norm_final(x), shift_zero, scale_zero)
-            x = self.t_mask_select(frames_mask, x, x_zero, T, S)
+            x = t_mask_select(frames_mask, x, x_zero, T, S)
 
         x = self.linear(x)
         return x
@@ -733,3 +726,10 @@ class PositionEmbedding2D(nn.Cell):
         base_size: Optional[int] = None,
     ) -> Tensor:
         return self._get_cached_emb(h, w, scale, base_size).to(x.dtype)
+
+
+def t_mask_select(x_mask: Tensor, x: Tensor, masked_x: Tensor, T: int, S: int) -> Tensor:
+    x = x.reshape(x.shape[0], T, S, x.shape[-1])  # B (T S) C -> B T S C
+    masked_x = masked_x.reshape(masked_x.shape[0], T, S, masked_x.shape[-1])  # B (T S) C -> B T S C
+    x = ops.where(x_mask[:, :, None, None], x, masked_x)  # x_mask: [B, T]
+    return x.reshape(x.shape[0], T * S, x.shape[-1])  # B T S C -> B (T S) C
