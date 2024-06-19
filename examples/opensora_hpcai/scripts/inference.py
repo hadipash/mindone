@@ -18,7 +18,8 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
-from opensora.models.stdit import STDiT2_XL_2, STDiT_XL_2
+from opensora.datasets.aspect import ASPECT_RATIO_MAP, ASPECT_RATIOS, get_image_size, get_num_frames
+from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.text_encoder.t5 import get_text_encoder_and_tokenizer
 from opensora.models.vae.vae import SD_CONFIG, AutoencoderKL
 from opensora.pipelines import InferPipeline, InferPipelineFiTLike
@@ -155,13 +156,21 @@ def main(args):
 
     # 2. model initiate and weight loading
     # 2.1 latte
-    VAE_T_COMPRESS = 1
+    VAE_T_COMPRESS = 4  # FIXME
     VAE_S_COMPRESS = 8
     VAE_Z_CH = SD_CONFIG["z_channels"]
-    img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
+
+    if args.image_size is not None:
+        img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
+    else:
+        if args.resolution is None or args.aspect_ratio is None:
+            raise ValueError("`resolution` and `aspect_ratio` must be provided if `image_size` is not provided")
+        img_h, img_w = get_image_size(args.resolution, args.aspect_ratio)
+
+    num_frames = get_num_frames(args.num_frames)
 
     input_size = (
-        args.num_frames // VAE_T_COMPRESS,
+        num_frames // VAE_T_COMPRESS,
         img_h // VAE_S_COMPRESS,
         img_w // VAE_S_COMPRESS,
     )
@@ -196,9 +205,14 @@ def main(args):
 
     elif args.model_version == "v1.1":
         model_name = "STDiT2"
-        model_extra_args.update({"input_sq_size": 512, "qk_norm": True})
+        model_extra_args["qk_norm"] = True
         logger.info(f"{model_name} init")
         latte_model = STDiT2_XL_2(**model_extra_args)
+    elif args.model_version == "v1.2":
+        model_name = "STDiT3"
+        model_extra_args["qk_norm"] = True
+        logger.info(f"{model_name} init")
+        latte_model = STDiT3_XL_2(**model_extra_args)
     else:
         raise ValueError(f"Unknown model version: {args.model_version}")
 
@@ -213,7 +227,7 @@ def main(args):
         else:
             logger.warning(msg)
 
-    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
+    dtype_map = {"fp32": ms.float32, "fp16": ms.float16, "bf16": ms.bfloat16}
     if args.dtype in ["fp16", "bf16"]:
         latte_model = auto_mixed_precision(
             latte_model, amp_level=args.amp_level, dtype=dtype_map[args.dtype], custom_fp32_cells=WHITELIST_OPS
@@ -287,7 +301,7 @@ def main(args):
         num_inference_steps=args.sampling_steps,
         guidance_rescale=args.guidance_scale,
         guidance_channels=args.guidance_channels,
-        ddim_sampling=args.ddim_sampling,  # TODO: add ddim support for OpenSora v1.1
+        sampling=args.sampling,  # TODO: add ddim support for OpenSora v1.1
         micro_batch_size=args.vae_micro_batch_size,
     )
     if args.pre_patchify:
@@ -308,12 +322,12 @@ def main(args):
 
     # 3.1. Support for multi-resolution (OpenSora v1.1 only)
     model_args = {}
-    if args.model_version == "v1.1":
-        model_args["height"] = Tensor([img_h] * args.batch_size, dtype=ms.float32)
-        model_args["width"] = Tensor([img_w] * args.batch_size, dtype=ms.float32)
-        model_args["num_frames"] = Tensor([args.num_frames] * args.batch_size, dtype=ms.float32)
-        model_args["ar"] = Tensor([img_h / img_w] * args.batch_size, dtype=ms.float32)
-        model_args["fps"] = Tensor([args.fps] * args.batch_size, dtype=ms.float32)
+    if args.model_version != "v1":
+        model_args["height"] = Tensor([img_h] * args.batch_size, dtype=dtype_map[args.dtype])
+        model_args["width"] = Tensor([img_w] * args.batch_size, dtype=dtype_map[args.dtype])
+        model_args["num_frames"] = Tensor([num_frames] * args.batch_size, dtype=dtype_map[args.dtype])
+        model_args["ar"] = Tensor([img_h / img_w] * args.batch_size, dtype=dtype_map[args.dtype])
+        model_args["fps"] = Tensor([args.fps] * args.batch_size, dtype=dtype_map[args.dtype])
 
     # 3.2 Prepare references (OpenSora v1.1 only)
     if args.reference_path is not None and not (len(args.reference_path) == 1 and args.reference_path[0] == ""):
@@ -335,7 +349,7 @@ def main(args):
             f"dtype: {args.dtype}",
             f"amp_level: {args.amp_level}",
             f"Sampling steps {args.sampling_steps}",
-            f"DDIM sampling: {args.ddim_sampling}",
+            f"Sampling: {args.sampling}",
             f"CFG guidance scale: {args.guidance_scale}",
         ]
     )
@@ -379,7 +393,7 @@ def main(args):
                         -args.condition_frame_length,
                         0,
                         args.condition_frame_length,
-                        0.0,
+                        args.condition_frame_edit,
                     ]
                     if frames_mask_strategy[j] is None:
                         frames_mask_strategy[j] = [new_strategy]
@@ -389,9 +403,9 @@ def main(args):
             # prepare inputs
             inputs = {}
             # b c t h w
-            z = np.random.randn(*([ns, VAE_Z_CH] + list(input_size))).astype(np.float32)
+            z = np.random.randn(ns, VAE_Z_CH, *input_size).astype(np.float32)
 
-            if args.model_version == "v1.1":
+            if args.model_version != "v1":
                 z, frames_mask = apply_mask_strategy(z, references, frames_mask_strategy, loop_i)
                 frames_mask = Tensor(frames_mask, dtype=ms.float32)
 
@@ -417,6 +431,7 @@ def main(args):
             # infer
             start_time = time.time()
             samples, latent = pipeline(inputs, frames_mask=frames_mask, additional_kwargs=model_args)
+            # TODO: adjust to decoder time compression
             latents.append(latent.asnumpy()[:, :, args.condition_frame_length if loop_i > 0 else 0 :])
             if samples is not None:
                 videos.append(samples.asnumpy()[:, args.condition_frame_length if loop_i > 0 else 0 :])
@@ -462,10 +477,14 @@ def parse_args():
         help="path to load a config yaml file that describes the setting which will override the default arguments",
     )
     parser.add_argument(
-        "--model_version", default="v1", type=str, choices=["v1", "v1.1"], help="OpenSora model version."
+        "--model_version", default="v1", type=str, choices=["v1", "v1.1", "v1.2"], help="OpenSora model version."
     )
-    parser.add_argument("--image_size", type=int, default=256, nargs="+", help="image size in [256, 512]")
-    parser.add_argument("--num_frames", type=int, default=16, help="number of frames")
+    parser.add_argument("--image_size", type=int, nargs="+", help="image size in [256, 512]")
+    parser.add_argument("--resolution", type=str, help=f"Supported video resolutions: {list(ASPECT_RATIOS.keys())}")
+    parser.add_argument(
+        "--aspect_ratio", type=str, help=f"Supported video aspect ratios: {list(ASPECT_RATIO_MAP.keys())}"
+    )
+    parser.add_argument("--num_frames", type=str, default="16", help="number of frames")
     parser.add_argument(
         "--num_samples",
         type=int,
@@ -515,6 +534,11 @@ def parse_args():
         "--condition_frame_length",
         type=int,
         help="Number of frames generated in a previous loop to use as a conditioning for the next loop.",
+    )
+    parser.add_argument(
+        "--condition_frame_edit",
+        type=float,
+        help="The intensity of editing conditioning frames, where 0 means no edit and 1 means a complete edit.",
     )
     parser.add_argument(
         "--mask_strategy", type=str, nargs="*", help="Masking strategy for Image/Video-to-Video generation task."
@@ -606,7 +630,13 @@ def parse_args():
         help="[For T2V models only] If False, skip vae decode to save memory"
         " (you can use infer_vae_decode.py to decode the saved denoised latent later.",
     )
-    parser.add_argument("--ddim_sampling", type=str2bool, default=True, help="Whether to use DDIM for sampling")
+    parser.add_argument(
+        "--sampling",
+        type=str,
+        default="ddpm",
+        choices=["ddpm", "ddim", "rflow"],
+        help="Which sampling technique to use.",
+    )
     parser.add_argument("--pre_patchify", default=False, type=str2bool, help="Patchify the latent before inference.")
     parser.add_argument("--max_image_size", default=512, type=int, help="Max image size for patchified latent.")
     parser.add_argument("--max_num_frames", default=16, type=int, help="Max number of frames for patchified latent.")
