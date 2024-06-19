@@ -65,6 +65,7 @@ class STDiT2Block(nn.Cell):
             qkv_bias=True,
             enable_flash_attention=enable_flashattn,
             qk_norm=qk_norm,
+            qk_norm_legacy=True,
         )
         self.scale_shift_table = Parameter(np.random.randn(6, hidden_size).astype(np.float32) / hidden_size**0.5)
 
@@ -87,6 +88,7 @@ class STDiT2Block(nn.Cell):
             enable_flash_attention=enable_flashattn,
             rope=rope,
             qk_norm=qk_norm,
+            qk_norm_legacy=True,
         )
         self.scale_shift_table_temporal = Parameter(  # new
             np.random.randn(3, hidden_size).astype(np.float32) / hidden_size**0.5

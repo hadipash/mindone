@@ -213,6 +213,7 @@ class SelfAttention(nn.Cell):
         norm_layer: Type[nn.Cell] = LlamaRMSNorm,
         enable_flash_attention=False,
         rope=None,
+        qk_norm_legacy: bool = False,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
@@ -225,6 +226,7 @@ class SelfAttention(nn.Cell):
         self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init="XavierUniform", bias_init="Zero")
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
         self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self._qk_norm_legacy = qk_norm_legacy
 
         self.enable_flash_attention = (
             enable_flash_attention and FLASH_IS_AVAILABLE and (ms.context.get_context("device_target") == "Ascend")
@@ -263,14 +265,16 @@ class SelfAttention(nn.Cell):
         k = ops.squeeze(k, axis=2)
         v = ops.squeeze(v, axis=2)
 
-        # WARNING: this may be a bug
+        if not self._qk_norm_legacy:  # Normalize q and k before applying Rope
+            q, k = self.q_norm(q), self.k_norm(k)
         if self.rotary_emb is not None and freqs_cis is None:
             q = self.rotary_emb(q)
             k = self.rotary_emb(k)
         elif freqs_cis is not None:
             q = rope_1d(q, freqs_cis)
             k = rope_1d(k, freqs_cis)
-        q, k = self.q_norm(q), self.k_norm(k)
+        if self._qk_norm_legacy:  # Legacy: normalize q and k after applying Rope
+            q, k = self.q_norm(q), self.k_norm(k)
 
         # mask process
         if mask is not None:
