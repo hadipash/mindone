@@ -47,11 +47,9 @@ class RFLOW:
             timesteps = [timestep_transform(t, model_kwargs, num_timesteps=self.num_timesteps) for t in timesteps]
 
         if frames_mask is not None:
-            noise_added = ops.zeros_like(frames_mask, dtype=dtype.bool_)
-            noise_added = noise_added | (frames_mask == 1)
+            noise_added = (ops.zeros_like(frames_mask) + frames_mask).astype(dtype.bool_)
 
-        progress_wrap = tqdm if progress else (lambda x: x)
-        for i, t in progress_wrap(enumerate(timesteps)):
+        for i, t in tqdm(enumerate(timesteps), total=self.num_sampling_steps):
             # mask for adding noise
             if frames_mask is not None:
                 mask_t = frames_mask * self.num_timesteps
@@ -59,7 +57,7 @@ class RFLOW:
                 x_noise = self.scheduler.add_noise(x0, ops.randn_like(x0), t)
 
                 model_kwargs["frames_mask"] = mask_t_upper = mask_t >= t.unsqueeze(1)
-                mask_add_noise = mask_t_upper & ~noise_added
+                mask_add_noise = (mask_t_upper * (1 - noise_added)).astype(dtype.bool_)
 
                 z = ops.where(mask_add_noise[:, None, :, None, None], x_noise, x0)
                 noise_added = mask_t_upper

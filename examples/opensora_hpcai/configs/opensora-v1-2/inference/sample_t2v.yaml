@@ -9,7 +9,7 @@ num_frames: 4s
 fps: 24
 enable_flash_attention: True
 model_max_length: 300
-dtype: "fp32"
+dtype: "bf16"
 batch_size: 1
 
 # sampling
