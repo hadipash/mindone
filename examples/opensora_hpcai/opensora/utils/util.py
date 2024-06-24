@@ -4,6 +4,8 @@ from typing import List, Tuple, Union
 import imageio
 import numpy as np
 
+IMG_FPS = 120  # an FPS placeholder for images
+
 
 def save_videos(videos: np.ndarray, path: str, fps=8, concat=False):
     # videos: (b f H W 3), normalized to [0, 1]

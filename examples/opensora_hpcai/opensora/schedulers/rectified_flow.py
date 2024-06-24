@@ -90,7 +90,7 @@ def timestep_transform(
     # NOTE: currently, we do not take fps into account
     # NOTE: temporal_reduction is hardcoded, this should be equal to the temporal reduction factor of the vae
     if model_kwargs["num_frames"][0] == 1:
-        num_frames = ops.ones_like(model_kwargs["num_frames"])
+        num_frames = ops.ones_like(model_kwargs["num_frames"], dtype=dtype.float32)
     else:
         num_frames = model_kwargs["num_frames"].astype(dtype.float32) // 17 * 5
     ratio_time = (num_frames / base_num_frames).sqrt()

@@ -619,7 +619,7 @@ class TimestepEmbedder(nn.Cell):
         return embedding
 
     def construct(self, t: Tensor, dtype: ms.dtype):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size).to(dtype)
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -724,7 +724,7 @@ class PositionEmbedding2D(nn.Cell):
         scale: Optional[float] = 1.0,
         base_size: Optional[int] = None,
     ) -> Tensor:
-        return self._get_cached_emb(h, w, scale, base_size).to(x.dtype)
+        return self._get_cached_emb(h, w, scale, base_size)
 
 
 def t_mask_select(x_mask: Tensor, x: Tensor, masked_x: Tensor, T: int, S: int) -> Tensor:
