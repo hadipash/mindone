@@ -192,13 +192,15 @@ class VideoDatasetRefactored(BaseDataset):
             vae_latent_data = np.load(vae_latent_path)
 
             # get fps from csv, or cached latents, or from original video in order
-            if "fps" in data:  # cache FPS for further iterations
+            if "fps" in data:
                 data["fps"] = np.array(data["fps"], dtype=np.float32)
             elif "fps" in vae_latent_data:
                 data["fps"] = np.array(vae_latent_data["fps"], dtype=np.float32)
             else:
                 with VideoReader(data["video"]) as reader:
-                    data["fps"] = self._data[idx]["fps"] = np.array(reader.fps, dtype=np.float32)
+                    self._data[idx]["fps"] = reader.fps  # cache FPS for further iterations
+                    data["fps"] = np.array(reader.fps, dtype=np.float32)
+            # data["fps"] /= self._stride  # FIXME: OS v1.1 incorrectly calculates FPS
 
             latent_mean, latent_std = vae_latent_data["latent_mean"], vae_latent_data["latent_std"]
             if len(latent_mean) < self._min_length:
@@ -232,7 +234,7 @@ class VideoDatasetRefactored(BaseDataset):
 
                 start_pos = random.randint(0, len(reader) - min_length)
                 data["video"] = reader.fetch_frames(num=num_frames, start_pos=start_pos, step=self._stride)
-                data["fps"] = np.array(reader.fps, dtype=np.float32)
+                data["fps"] = np.array(reader.fps, dtype=np.float32)  # / self._stride  # FIXME: OS v1.1 incorrect
 
         data["num_frames"] = np.array(num_frames, dtype=np.float32)
 

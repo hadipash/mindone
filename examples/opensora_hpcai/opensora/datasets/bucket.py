@@ -72,6 +72,10 @@ class Bucket:
             # otherwise, find suitable t_id for video
             t_fail = True
             for t_id, prob in t_criteria.items():
+                if isinstance(prob, list):
+                    prob_t = prob[1]
+                    if random() > prob_t:
+                        continue
                 if T > t_id * frame_interval and t_id != 1:
                     t_fail = False
                     break
@@ -79,7 +83,9 @@ class Bucket:
                 continue
 
             # leave the loop if prob is high enough
-            if prob == 1 or random() < prob:
+            if isinstance(prob, list):
+                prob = prob[0]
+            if prob >= 1 or random() < prob:
                 fail = False
                 break
         if fail:
