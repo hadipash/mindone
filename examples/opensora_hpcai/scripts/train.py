@@ -266,7 +266,7 @@ def main(args):
                 "num_recompute_blocks": args.num_recompute_blocks,
             }
         )
-        logger.info(f"STDiT2 input size: {input_size if args.bucket_config is None else 'Variable'}")
+        logger.info(f"STDiT2 input size: {latent_size if args.bucket_config is None else 'Variable'}")
         latte_model = STDiT2_XL_2(**model_extra_args)
     else:
         raise ValueError(f"Unknown model version: {args.model_version}")
@@ -370,7 +370,7 @@ def main(args):
             frames_mask_generator=mask_gen,
             buckets=buckets,
             filter_data=args.filter_data,
-            output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
+            output_columns=["video", "caption", "mask", "frames_mask", "num_frames", "height", "width", "fps", "ar"],
             pre_patchify=args.pre_patchify,
             patch_size=latte_model.patch_size,
             embed_dim=latte_model.hidden_size,
