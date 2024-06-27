@@ -624,9 +624,9 @@ def parse_args():
     parser.add_argument(
         "--save_format",
         default="mp4",
-        choices=["gif", "mp4"],
+        choices=["gif", "mp4", "png"],
         type=str,
-        help="video format for saving the sampling output, gif or mp4",
+        help="video format for saving the sampling output: gif, mp4 or png",
     )
     parser.add_argument("--fps", type=int, default=8, help="FPS in the saved video")
     parser.add_argument("--batch_size", default=4, type=int, help="infer batch size")
