@@ -3,13 +3,13 @@ ckpt_path: "models/opensora_stdit_v3.ckpt"
 t5_model_dir: "models/t5-v1_1-xxl/"
 vae_checkpoint: "models/opensora_vae_v2.ckpt"
 
-resolution: 240p
-aspect_ratio: 9:16
+resolution: 720p
+aspect_ratio: "9:16"
 num_frames: 4s
 fps: 24
 enable_flash_attention: True
 model_max_length: 300
-dtype: "bf16"
+dtype: bf16
 batch_size: 1
 
 # sampling
@@ -17,7 +17,7 @@ sampling_steps: 30
 guidance_scale: 7.0
 guidance_channels: 3
 seed: 42
-ddim_sampling: False
+sampling: rflow
 
 loop: 1
 condition_frame_length: 5

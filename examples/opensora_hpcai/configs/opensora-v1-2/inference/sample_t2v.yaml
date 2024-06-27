@@ -3,7 +3,7 @@ ckpt_path: "models/opensora_stdit_v3.ckpt"
 t5_model_dir: "models/t5-v1_1-xxl/"
 vae_checkpoint: "models/opensora_vae_v2.ckpt"
 
-resolution: 480p
+resolution: 720p
 aspect_ratio: "9:16"
 num_frames: 4s
 fps: 24

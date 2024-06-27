@@ -155,7 +155,7 @@ def main(args):
         args.loop = 1
         logger.warning("OpenSora v1 doesn't support iterative video generation. Setting loop to 1.")
 
-    captions = process_prompts(captions, args.loop)  # in v1.1 each loop can have a different caption
+    captions = process_prompts(captions, args.loop)  # in v1.1 and above, each loop can have a different caption
     captions, base_data_idx = data_parallel_split(captions, rank_id, device_num)  # split for data parallel
     if args.use_parallel:
         print(f"Num captions for rank {rank_id}: {len(captions)}")
@@ -275,7 +275,7 @@ def main(args):
 
     else:
         assert not args.use_parallel, "parallel inference is not supported for t5 cached sampling currently."
-        if args.model_version == "v1.1":
+        if args.model_version != "v1":
             logger.warning("For embedded captions, only one prompt per video is supported at this moment.")
 
         embed_paths = sorted(glob.glob(os.path.join(args.text_embed_folder, "*.npz")))
@@ -326,7 +326,7 @@ def main(args):
     pipeline_ = InferPipelineFiTLike if args.pre_patchify else InferPipeline
     pipeline = pipeline_(latte_model, vae, text_encoder=text_encoder, **pipeline_kwargs)
 
-    # 3.1. Support for multi-resolution (OpenSora v1.1 only)
+    # 3.1. Support for multi-resolution (OpenSora v1.1 and above)
     model_args = {}
     if args.model_version != "v1":
         model_args["height"] = Tensor([img_h] * args.batch_size, dtype=dtype_map[args.dtype])
@@ -336,7 +336,7 @@ def main(args):
         fps = args.fps if num_frames > 1 else IMG_FPS
         model_args["fps"] = Tensor([fps] * args.batch_size, dtype=dtype_map[args.dtype])
 
-    # 3.2 Prepare references (OpenSora v1.1 only)
+    # 3.2 Prepare references (OpenSora v1.1 and above)
     if args.reference_path is not None and not (len(args.reference_path) == 1 and args.reference_path[0] == ""):
         if len(args.reference_path) != num_prompts:
             raise ValueError(f"Reference path mismatch: {len(args.reference_path)} != {num_prompts}")
