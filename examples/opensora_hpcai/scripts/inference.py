@@ -333,7 +333,7 @@ def main(args):
         model_args["width"] = Tensor([img_w] * args.batch_size, dtype=dtype_map[args.dtype])
         model_args["num_frames"] = Tensor([num_frames] * args.batch_size, dtype=dtype_map[args.dtype])
         model_args["ar"] = Tensor([img_h / img_w] * args.batch_size, dtype=dtype_map[args.dtype])
-        fps = args.fps if args.fps > 1 else IMG_FPS
+        fps = args.fps if num_frames > 1 else IMG_FPS
         model_args["fps"] = Tensor([fps] * args.batch_size, dtype=dtype_map[args.dtype])
 
     # 3.2 Prepare references (OpenSora v1.1 only)
