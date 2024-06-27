@@ -4,13 +4,12 @@ import os
 import sys
 
 import yaml
+from opensora.datasets.aspect import ASPECT_RATIO_MAP, ASPECT_RATIOS
+from opensora.utils.model_utils import _check_cfgs_in_parser, str2bool
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
-
-from opensora.utils.model_utils import _check_cfgs_in_parser, str2bool
-
 from mindone.utils.misc import to_abspath
 
 logger = logging.getLogger()
@@ -70,8 +69,7 @@ def parse_train_args(parser):
     parser.add_argument(
         "--vae_type",
         type=str,
-        default=None,
-        choices=[None, "OpenSora-VAE-v1.2", "VideoAutoencoderKL"],
+        choices=["OpenSora-VAE-v1.2", "VideoAutoencoderKL"],
         help="If None, use VideoAutoencoderKL, which is a spatial VAE from SD, for opensora v1.0 and v1.1. \
                 If OpenSora-VAE-v1.2, will use 3D VAE (spatial + temporal), typically for opensora v1.2",
     )
@@ -228,7 +226,11 @@ def parse_train_args(parser):
     parser.add_argument(
         "--sd_scale_factor", type=float, default=0.18215, help="VAE scale factor of Stable Diffusion model."
     )
-    parser.add_argument("--image_size", default=256, type=int, nargs="+", help="the image size used to initiate model")
+    parser.add_argument("--image_size", type=int, nargs="+", help="the image size used to initiate model")
+    parser.add_argument("--resolution", type=str, help=f"Supported video resolutions: {list(ASPECT_RATIOS.keys())}")
+    parser.add_argument(
+        "--aspect_ratio", type=str, help=f"Supported video aspect ratios: {list(ASPECT_RATIO_MAP.keys())}"
+    )
     parser.add_argument("--num_frames", default=16, type=int, help="the num of frames used to initiate model")
     parser.add_argument("--frame_stride", default=3, type=int, help="frame sampling stride")
     parser.add_argument("--mask_ratios", type=dict, help="Masking ratios")

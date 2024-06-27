@@ -1,7 +1,16 @@
+from typing import Optional
+
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # FIXME: python 3.7
+
 from tqdm import tqdm
 
 from mindspore import Tensor, dtype, ops
 from mindspore.nn.probability.distribution import LogNormal
+
+from .iddpm.diffusion_utils import mean_flat
 
 
 class RFLOW:
@@ -23,7 +32,6 @@ class RFLOW:
         self.scheduler = RFlowScheduler(
             num_timesteps=num_timesteps,
             num_sampling_steps=num_sampling_steps,
-            use_discrete_timesteps=use_discrete_timesteps,
             use_timestep_transform=use_timestep_transform,
             **kwargs,
         )
@@ -44,7 +52,16 @@ class RFLOW:
             timesteps = [int(round(t)) for t in timesteps]
         timesteps = [Tensor([t] * z.shape[0]) for t in timesteps]
         if self.use_timestep_transform:
-            timesteps = [timestep_transform(t, model_kwargs, num_timesteps=self.num_timesteps) for t in timesteps]
+            timesteps = [
+                timestep_transform(
+                    t,
+                    model_kwargs["height"],
+                    model_kwargs["width"],
+                    model_kwargs["num_frames"],
+                    num_timesteps=self.num_timesteps,
+                )
+                for t in timesteps
+            ]
 
         if frames_mask is not None:
             noise_added = (ops.zeros_like(frames_mask) + frames_mask).astype(dtype.bool_)
@@ -77,7 +94,9 @@ class RFLOW:
 
 def timestep_transform(
     t,
-    model_kwargs,
+    height: Tensor,
+    width: Tensor,
+    num_frames: Tensor,
     base_resolution=512 * 512,
     base_num_frames=1,
     scale=1.0,
@@ -85,14 +104,14 @@ def timestep_transform(
 ):
     # FIXME: avoid calculations on tensors outside `construct`
     t = t / num_timesteps
-    resolution = model_kwargs["height"].astype(dtype.float32) * model_kwargs["width"].astype(dtype.float32)
+    resolution = height.astype(dtype.float32) * width.astype(dtype.float32)
     ratio_space = (resolution / base_resolution).sqrt()
     # NOTE: currently, we do not take fps into account
     # NOTE: temporal_reduction is hardcoded, this should be equal to the temporal reduction factor of the vae
-    if model_kwargs["num_frames"][0] == 1:
-        num_frames = ops.ones_like(model_kwargs["num_frames"], dtype=dtype.float32)
+    if num_frames[0] == 1:  # image
+        num_frames = ops.ones_like(num_frames, dtype=dtype.float32)
     else:
-        num_frames = model_kwargs["num_frames"].astype(dtype.float32) // 17 * 5
+        num_frames = num_frames.astype(dtype.float32) // 17 * 5
     ratio_time = (num_frames / base_num_frames).sqrt()
 
     ratio = ratio_space * ratio_time * scale
@@ -107,8 +126,7 @@ class RFlowScheduler:
         self,
         num_timesteps=1000,
         num_sampling_steps=10,
-        use_discrete_timesteps=False,
-        sample_method="uniform",
+        sample_method: Literal["discrete-uniform", "uniform", "logit-normal"] = "uniform",
         loc=0.0,
         scale=1.0,
         use_timestep_transform=False,
@@ -116,22 +134,70 @@ class RFlowScheduler:
     ):
         self.num_timesteps = num_timesteps
         self.num_sampling_steps = num_sampling_steps
-        self.use_discrete_timesteps = use_discrete_timesteps
 
-        # sample method
-        assert sample_method in ["uniform", "logit-normal"]
-        assert (
-            sample_method == "uniform" or not use_discrete_timesteps
-        ), "Only uniform sampling is supported for discrete timesteps"
-        self.sample_method = sample_method
-        if sample_method == "logit-normal":  # TODO: check this
+        if sample_method == "discrete-uniform":
+            self._sample_func = self._discrete_sample
+        elif sample_method == "uniform":
+            self._sample_func = self._uniform_sample
+        elif sample_method == "logit-normal":  # TODO: check this
             # seed=None <- use global seed
             self.distribution = LogNormal(Tensor([loc]), Tensor([scale]), seed=None, dtype=dtype.float32)
-            self.sample_t = lambda x: self.distribution.sample(x.shape[0])[:, 0]
+            self._sample_func = self._logit_normal_sample
+        else:
+            raise ValueError(f"Unknown sample method: {sample_method}")
 
         # timestep transform
         self.use_timestep_transform = use_timestep_transform
         self.transform_scale = transform_scale
+
+    def _discrete_sample(self, size: int) -> Tensor:
+        return ops.randint(0, self.num_timesteps, (size,), dtype=dtype.int32)
+
+    def _uniform_sample(self, size: int) -> Tensor:
+        return ops.rand((size,), dtype=dtype.float32) * self.num_timesteps
+
+    def _logit_normal_sample(self, size: int) -> Tensor:
+        return self.distribution.sample((size,)).squeeze() * self.num_timesteps  # noqa
+
+    def training_losses(
+        self,
+        model,
+        x_start: Tensor,
+        text_embed: Tensor,
+        mask: Optional[Tensor] = None,
+        frames_mask: Optional[Tensor] = None,
+        num_frames: Optional[Tensor] = None,
+        height: Optional[Tensor] = None,
+        width: Optional[Tensor] = None,
+        fps: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        """
+        Compute training losses for a single timestep.
+        Arguments format copied from opensora/schedulers/iddpm/gaussian_diffusion.py/training_losses
+        Note: t is int tensor and should be rescaled from [0, num_timesteps-1] to [1,0]
+        """
+        t = self._sample_func(x_start.shape[0])
+        if self.use_timestep_transform:
+            t = timestep_transform(
+                t, height, width, num_frames, scale=self.transform_scale, num_timesteps=self.num_timesteps
+            )
+
+        noise = ops.randn_like(x_start)
+
+        x_t = self.add_noise(x_start, noise, t)
+        if frames_mask is not None:
+            t0 = ops.zeros_like(t)
+            x_t0 = self.add_noise(x_start, noise, t0)
+            x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)
+
+        model_output = model(
+            x_t, t, text_embed, mask, frames_mask=frames_mask, fps=fps, height=height, width=width, **kwargs
+        )
+        velocity_pred = model_output.chunk(2, axis=1)[0]
+        loss = mean_flat((velocity_pred - (x_start - noise)).pow(2), frames_mask=frames_mask)
+
+        return loss.mean()
 
     def add_noise(
         self,

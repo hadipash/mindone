@@ -1,6 +1,11 @@
 import logging
 from typing import Optional, Tuple
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # FIXME: python 3.7
+
 import mindspore as ms
 from mindspore import Tensor, nn, ops
 
@@ -11,6 +16,7 @@ from ..schedulers.iddpm.diffusion_utils import (
     mean_flat,
     normal_kl,
 )
+from ..schedulers.rectified_flow import RFlowScheduler
 
 __all__ = ["DiffusionWithLoss"]
 
@@ -126,7 +132,17 @@ class DiffusionWithLoss(nn.Cell):
             text_embed = self.get_condition_embeddings(text_tokens)
         else:
             text_embed = text_tokens  # dataset retunrs text embeddings instead of text tokens
-        loss = self.compute_loss(x, text_embed, mask, frames_mask, num_frames, height, width, fps, ar)
+        loss = self.compute_loss(
+            x,
+            text_embed,
+            mask,
+            frames_mask=frames_mask,
+            num_frames=num_frames,
+            height=height,
+            width=width,
+            fps=fps,
+            ar=ar,
+        )
 
         return loss
 
@@ -228,7 +244,7 @@ class DiffusionWithLossFiTLike(DiffusionWithLoss):
         max_image_size: int = 512,
         vae_downsample_rate: float = 8.0,
         in_channels: int = 4,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.p = patch_size
@@ -373,3 +389,41 @@ class DiffusionWithLossFiTLike(DiffusionWithLoss):
         x = ops.transpose(x, (0, 4, 1, 2, 5, 3, 6))
         x = ops.reshape(x, (n, self.c, f, self.nh * self.p[1], self.nw * self.p[2]))
         return x
+
+
+# TODO: poor design, extract schedulers away from DiffusionWithLoss
+class RFlowDiffusionWithLoss(DiffusionWithLoss):
+    def __init__(
+        self,
+        *args,
+        sample_method: Literal["discrete-uniform", "uniform", "logit-normal"] = "uniform",
+        use_timestep_transform: bool = False,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.scheduler = RFlowScheduler(sample_method=sample_method, use_timestep_transform=use_timestep_transform)
+
+    def compute_loss(
+        self,
+        x: Tensor,
+        text_embed: Tensor,
+        mask: Optional[Tensor] = None,
+        frames_mask: Optional[Tensor] = None,
+        num_frames: Optional[Tensor] = None,
+        height: Optional[Tensor] = None,
+        width: Optional[Tensor] = None,
+        fps: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        self.scheduler.training_losses(
+            self.network,
+            x,
+            text_embed,
+            mask,
+            frames_mask=frames_mask,
+            num_frames=num_frames,
+            height=height,
+            width=width,
+            fps=fps,
+            **kwargs,
+        )

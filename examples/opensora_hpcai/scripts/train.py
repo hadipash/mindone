@@ -21,11 +21,13 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 from args_train import parse_args
-from opensora.models.stdit import STDiT2_XL_2, STDiT_XL_2
+from opensora.datasets.aspect import get_image_size, get_num_frames
+from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.vae.vae import SD_CONFIG, OpenSoraVAE_V1_2, VideoAutoencoderKL
 from opensora.pipelines import DiffusionWithLoss, DiffusionWithLossFiTLike
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
+from opensora.utils.model_utils import WHITELIST_OPS
 
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallbackEpoch
 from mindone.trainers.checkpoint import resume_train_network
@@ -36,9 +38,6 @@ from mindone.trainers.train_step import TrainOneStepWrapper
 from mindone.utils.logger import set_logger
 from mindone.utils.params import count_params
 from mindone.utils.seed import set_random_seed
-
-# from opensora.utils.model_utils import WHITELIST_OPS
-
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
@@ -174,6 +173,20 @@ def main(args):
     # 2. model initiate and weight loading
     dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
 
+    if args.image_size is not None:
+        img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
+    else:
+        if args.resolution is None or args.aspect_ratio is None:
+            raise ValueError("`resolution` and `aspect_ratio` must be provided if `image_size` is not provided")
+        img_h, img_w = get_image_size(args.resolution, args.aspect_ratio)
+
+    if args.model_version == "v1":
+        assert img_h == img_w, "OpenSora v1 support square images only."
+    if args.pre_patchify:
+        img_h, img_w = args.max_image_size, args.max_image_size
+
+    num_frames = get_num_frames(args.num_frames)
+
     # 2.1 vae
     logger.info("vae init")
     train_with_vae_latent = args.vae_latent_folder is not None and os.path.exists(args.vae_latent_folder)
@@ -191,6 +204,8 @@ def main(args):
                 ckpt_path=args.vae_checkpoint,
                 freeze_vae_2d=True,
             )
+        else:
+            raise ValueError(f"Unknown VAE type: {args.vae_type}")
         vae = vae.set_train(False)
 
         for param in vae.get_parameters():
@@ -210,11 +225,7 @@ def main(args):
 
         # infer latent size
         VAE_Z_CH = vae.out_channels
-        img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
-        if args.pre_patchify:
-            img_h, img_w = args.max_image_size, args.max_image_size
-        input_size = (args.num_frames, img_h, img_w)
-        latent_size = vae.get_latent_size(input_size)
+        latent_size = vae.get_latent_size((num_frames, img_h, img_w))
     else:
         # vae cache
         vae = None
@@ -222,14 +233,7 @@ def main(args):
         VAE_Z_CH = SD_CONFIG["z_channels"]
         VAE_T_COMPRESS = 1
         VAE_S_COMPRESS = 8
-        img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
-        if args.pre_patchify:
-            img_h, img_w = args.max_image_size, args.max_image_size
-        latent_size = (
-            args.num_frames // VAE_T_COMPRESS,
-            img_h // VAE_S_COMPRESS,
-            img_w // VAE_S_COMPRESS,
-        )
+        latent_size = (num_frames // VAE_T_COMPRESS, img_h // VAE_S_COMPRESS, img_w // VAE_S_COMPRESS)
 
     # 2.2 stdit
     if args.model_version == "v1":
@@ -243,12 +247,14 @@ def main(args):
         patchify_conv3d_replace=patchify_conv3d_replace,  # for Ascend
         enable_flashattn=args.enable_flash_attention,
         use_recompute=args.use_recompute,
+        num_recompute_blocks=args.num_recompute_blocks,
     )
 
     if args.pre_patchify and args.model_version != "v1.1":
         raise ValueError("`pre_patchify=True` can only be used in model version 1.1.")
 
     if args.model_version == "v1":
+        model_name = "STDiT"
         model_extra_args.update(
             {
                 "space_scale": args.space_scale,  # 0.5 for 256x256. 1. for 512
@@ -256,29 +262,24 @@ def main(args):
                 "num_recompute_blocks": args.num_recompute_blocks,
             }
         )
-        logger.info(f"STDiT input size: {latent_size}")
         latte_model = STDiT_XL_2(**model_extra_args)
     elif args.model_version == "v1.1":
-        model_extra_args.update(
-            {
-                "input_sq_size": 512,
-                "qk_norm": True,
-                "num_recompute_blocks": args.num_recompute_blocks,
-            }
-        )
-        logger.info(f"STDiT2 input size: {latent_size if args.bucket_config is None else 'Variable'}")
+        model_name = "STDiT2"
+        model_extra_args["qk_norm"] = True
         latte_model = STDiT2_XL_2(**model_extra_args)
+    elif args.model_version == "v1.2":
+        model_name = "STDiT3"
+        model_extra_args["qk_norm"] = True
+        latte_model = STDiT3_XL_2(**model_extra_args)
     else:
         raise ValueError(f"Unknown model version: {args.model_version}")
+    logger.info(f"{model_name} input size: {latent_size if args.bucket_config is None else 'Variable'}")
 
     # mixed precision
     if args.dtype in ["fp16", "bf16"]:
         if not args.global_bf16:
             latte_model = auto_mixed_precision(
-                latte_model,
-                amp_level=args.amp_level,
-                dtype=dtype_map[args.dtype],
-                # custom_fp32_cells=WHITELIST_OPS
+                latte_model, amp_level=args.amp_level, dtype=dtype_map[args.dtype], custom_fp32_cells=WHITELIST_OPS
             )
     # load checkpoint
     if len(args.pretrained_model_path) > 0:
@@ -289,8 +290,8 @@ def main(args):
     latte_model.set_train(True)
 
     if latent_size[1] % latte_model.patch_size[1] != 0 or latent_size[2] % latte_model.patch_size[2] != 0:
-        height_ = latte_model.patch_size[1] * VAE_S_COMPRESS
-        width_ = latte_model.patch_size[2] * VAE_S_COMPRESS
+        height_ = latte_model.patch_size[1] * 8  # FIXME
+        width_ = latte_model.patch_size[2] * 8  # FIXME
         msg = f"Image height ({img_h}) and width ({img_w}) should be divisible by {height_} and {width_} respectively."
         if patchify_conv3d_replace == "linear":
             raise ValueError(msg)
@@ -319,7 +320,6 @@ def main(args):
     latent_diffusion_with_loss = pipeline_(latte_model, diffusion, vae=vae, text_encoder=None, **pipeline_kwargs)
 
     # 3. create dataset
-    dataloader = None
     if args.model_version == "v1":
         from opensora.datasets.t2v_dataset import create_dataloader
 
@@ -333,7 +333,7 @@ def main(args):
             vae_scale_factor=args.sd_scale_factor,
             sample_size=img_w,  # img_w == img_h
             sample_stride=args.frame_stride,
-            sample_n_frames=args.num_frames,
+            sample_n_frames=num_frames,
             tokenizer=None,
             video_column=args.video_column,
             caption_column=args.caption_column,
@@ -349,7 +349,7 @@ def main(args):
             num_parallel_workers=args.num_parallel_workers,
             max_rowsize=args.max_rowsize,
         )
-    elif args.model_version == "v1.1":
+    else:
         from opensora.datasets.bucket import Bucket, bucket_split_function
         from opensora.datasets.mask_generator import MaskGenerator
         from opensora.datasets.video_dataset_refactored import VideoDatasetRefactored
@@ -365,7 +365,7 @@ def main(args):
             text_emb_folder=args.text_embed_folder,
             vae_latent_folder=args.vae_latent_folder,
             vae_scale_factor=args.sd_scale_factor,
-            sample_n_frames=args.num_frames,
+            sample_n_frames=num_frames,
             sample_stride=args.frame_stride,
             frames_mask_generator=mask_gen,
             buckets=buckets,
@@ -552,7 +552,7 @@ def main(args):
             ckpt_save_interval=ckpt_save_interval,
             log_interval=args.log_interval,
             start_epoch=start_epoch,
-            model_name="STDiT",
+            model_name=model_name,
             record_lr=False,
         )
         callback.append(save_cb)
@@ -579,7 +579,8 @@ def main(args):
                 f"Learning rate: {args.start_learning_rate}",
                 f"Batch size: {args.batch_size if args.bucket_config is None else 'Variable'}",
                 f"Image size: {(img_h, img_w) if args.bucket_config is None else 'Variable'}",
-                f"Frames: {args.num_frames if args.bucket_config is None else 'Variable'}",
+                f"Frames: {num_frames if args.bucket_config is None else 'Variable'}",
+                f"Latent size: {latent_size if args.bucket_config is None else 'Variable'}",
                 f"Weight decay: {args.weight_decay}",
                 f"Grad accumulation steps: {args.gradient_accumulation_steps}",
                 f"Num epochs: {args.epochs}",
