@@ -11,13 +11,14 @@ image_size: [ 512, 512 ]
 num_frames: 16
 frame_stride: 3
 
-num_parallel_workers: 16
+num_parallel_workers: 8
 max_rowsize: 256
 
 # precision
 amp_level: "O2"
-dtype: "bf16"
-init_loss_scale: 65536
+dtype: bf16
+loss_scaler_type: static
+init_loss_scale: 1
 
 # training hyper-params
 scheduler: "cosine_decay"

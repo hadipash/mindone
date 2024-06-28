@@ -18,8 +18,8 @@ max_rowsize: 256
 
 # precision
 amp_level: "O2"
-dtype: "bf16"
-loss_scaler_type: "static"
+dtype: bf16
+loss_scaler_type: static
 init_loss_scale: 1
 
 # training hyper-params
