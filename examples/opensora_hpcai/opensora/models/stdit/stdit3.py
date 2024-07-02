@@ -170,6 +170,7 @@ class STDiT3(nn.Cell):
         freeze_y_embedder=False,
         skip_y_embedder=False,
         use_recompute=False,
+        num_recompute_blocks=None,
         patchify_conv3d_replace=None,
     ):
         super().__init__()
@@ -275,8 +276,10 @@ class STDiT3(nn.Cell):
                 param.requires_grad = False
 
         if use_recompute:
-            for block in self.blocks:
-                self.recompute(block)
+            num_recompute_blocks = num_recompute_blocks or depth
+            for blocks in [self.spatial_blocks, self.temporal_blocks]:
+                for block in blocks[:num_recompute_blocks]:
+                    self.recompute(block)
 
     def recompute(self, b):
         if not b._has_config_recompute:
@@ -435,7 +438,7 @@ class STDiT3(nn.Cell):
 
             # PixArt-Σ: rename 'blocks' to 'spatial_blocks'
             regex = re.compile(r"^blocks")
-            sd = {regex.sub("", k): v for k, v in sd.items()}
+            sd = {regex.sub("spatial_blocks", k): v for k, v in sd.items()}
 
             # load conv3d weight from pretrained conv2d or dense layer
             key_3d = "x_embedder.proj.weight"
