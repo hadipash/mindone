@@ -3,7 +3,7 @@ from typing import Tuple, Union
 from packaging import version
 
 import mindspore as ms
-from mindspore import Tensor, nn, ops
+from mindspore import nn, ops
 
 
 def divisible_by(num, den):
@@ -21,9 +21,7 @@ def cast_tuple(t, length=1):
 def pad_at_dim(t, pad, dim=-1):
     dims_from_right = (-dim - 1) if dim < 0 else (t.ndim - dim - 1)
     zeros = (0, 0) * dims_from_right
-    return ops.pad(
-        t, (*zeros, *pad), mode="constant", value=Tensor(0, dtype=t.dtype)  # BUG BF16: `value` has to be specified
-    )
+    return ops.pad(t, (*zeros, *pad), mode="constant")  # BUG: PadV3 doesn't support BF16
 
 
 class CausalConv3d(nn.Cell):

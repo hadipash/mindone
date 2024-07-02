@@ -169,7 +169,7 @@ class STDiT3(nn.Cell):
         only_train_temporal=False,
         freeze_y_embedder=False,
         skip_y_embedder=False,
-        use_recompute=False,  # TODO: add recompute
+        use_recompute=False,
         patchify_conv3d_replace=None,
     ):
         super().__init__()
@@ -431,6 +431,10 @@ class STDiT3(nn.Cell):
             sd = load_checkpoint(ckpt_path)
 
             regex = re.compile(r"^network\.|\._backbone")
+            sd = {regex.sub("", k): v for k, v in sd.items()}
+
+            # PixArt-Σ: rename 'blocks' to 'spatial_blocks'
+            regex = re.compile(r"^blocks")
             sd = {regex.sub("", k): v for k, v in sd.items()}
 
             # load conv3d weight from pretrained conv2d or dense layer
