@@ -67,6 +67,22 @@ def parse_train_args(parser):
         help="patchify_conv3d_replace, conv2d - equivalent conv2d to replace conv3d patchify, linear - equivalent linear layer to replace conv3d patchify  ",
     )
     parser.add_argument(
+        "--noise_scheduler", type=str, default="ddpm", choices=["ddpm", "rflow"], help="Diffusion noise scheduler."
+    )
+    parser.add_argument(
+        "--sample_method",
+        type=str,
+        default="uniform",
+        choices=["discrete-uniform", "uniform", "logit-normal"],
+        help="[RFlow only] Noise sampling method.",
+    )
+    parser.add_argument(
+        "--use_timestep_transform",
+        type=str2bool,
+        default=True,
+        help="[RFlow only] Apply resolution and video length aware timestep sampling.",
+    )
+    parser.add_argument(
         "--vae_type",
         type=str,
         choices=["OpenSora-VAE-v1.2", "VideoAutoencoderKL"],
@@ -288,7 +304,7 @@ def parse_train_args(parser):
         "--log_interval",
         default=1,
         type=int,
-        help="log interval in the unit of data sink size.. E.g. if data sink size = 10, log_inteval=2, log every 20 steps",
+        help="log interval in the unit of data sink size. E.g. if data sink size = 10, log_interval=2, log every 20 steps",
     )
     return parser
 

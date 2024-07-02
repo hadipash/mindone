@@ -24,7 +24,7 @@ from args_train import parse_args
 from opensora.datasets.aspect import get_image_size, get_num_frames
 from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.vae.vae import SD_CONFIG, OpenSoraVAE_V1_2, VideoAutoencoderKL
-from opensora.pipelines import DiffusionWithLoss, DiffusionWithLossFiTLike
+from opensora.pipelines import DiffusionWithLoss, DiffusionWithLossFiTLike, RFlowDiffusionWithLoss
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.model_utils import WHITELIST_OPS
@@ -307,16 +307,26 @@ def main(args):
         text_emb_cached=True,
         video_emb_cached=train_with_vae_latent,
     )
-    if args.pre_patchify:
-        additional_pipeline_kwargs = dict(
-            patch_size=latte_model.patch_size,
-            max_image_size=args.max_image_size,
-            vae_downsample_rate=8.0,
-            in_channels=latte_model.in_channels,
+    if args.noise_scheduler.lower() == "ddpm":
+        if args.pre_patchify:
+            additional_pipeline_kwargs = dict(
+                patch_size=latte_model.patch_size,
+                max_image_size=args.max_image_size,
+                vae_downsample_rate=8.0,
+                in_channels=latte_model.in_channels,
+            )
+            pipeline_kwargs.update(additional_pipeline_kwargs)
+            pipeline_ = DiffusionWithLossFiTLike
+        else:
+            pipeline_ = DiffusionWithLoss
+    elif args.noise_scheduler.lower() == "rflow":
+        pipeline_kwargs.update(
+            dict(sample_method=args.sample_method, use_timestep_transform=args.use_timestep_transform)
         )
-        pipeline_kwargs.update(additional_pipeline_kwargs)
+        pipeline_ = RFlowDiffusionWithLoss
+    else:
+        raise ValueError(f"Unknown noise scheduler: {args.noise_scheduler}")
 
-    pipeline_ = DiffusionWithLossFiTLike if args.pre_patchify else DiffusionWithLoss
     latent_diffusion_with_loss = pipeline_(latte_model, diffusion, vae=vae, text_encoder=None, **pipeline_kwargs)
 
     # 3. create dataset

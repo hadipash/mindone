@@ -191,6 +191,7 @@ class RFlowScheduler:
             x_t0 = self.add_noise(x_start, noise, t0)
             x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)
 
+        text_embed = text_embed[:, None, :]
         model_output = model(
             x_t, t, text_embed, mask, frames_mask=frames_mask, fps=fps, height=height, width=width, **kwargs
         )

@@ -274,6 +274,18 @@ class STDiT3(nn.Cell):
             for param in self.y_embedder.get_parameters():
                 param.requires_grad = False
 
+        if use_recompute:
+            for block in self.blocks:
+                self.recompute(block)
+
+    def recompute(self, b):
+        if not b._has_config_recompute:
+            b.recompute()
+        if isinstance(b, nn.CellList):
+            self.recompute(b[-1])
+        else:
+            b.add_flags(output_no_recompute=True)
+
     def initialize_weights(self):
         # Initialize transformer layers:
         def _basic_init(module):

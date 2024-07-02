@@ -415,7 +415,7 @@ class RFlowDiffusionWithLoss(DiffusionWithLoss):
         fps: Optional[Tensor] = None,
         **kwargs,
     ):
-        self.scheduler.training_losses(
+        return self.scheduler.training_losses(
             self.network,
             x,
             text_embed,
