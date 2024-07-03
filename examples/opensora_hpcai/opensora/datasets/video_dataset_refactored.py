@@ -75,7 +75,7 @@ class VideoDatasetRefactored(BaseDataset):
         self._min_length = (self._frames - 1) * self._stride + 1
         self._text_emb_folder = text_emb_folder
         self._vae_latent_folder = vae_latent_folder
-        self._vae_downsample_rate = vae_downsample_rate if self._vae_latent_folder is not None else 1
+        self._vae_downsample_rate = vae_downsample_rate
         self._vae_scale_factor = vae_scale_factor
         self._fmask_gen = frames_mask_generator
         self._pre_patchify = pre_patchify
@@ -236,14 +236,7 @@ class VideoDatasetRefactored(BaseDataset):
                 data["video"] = reader.fetch_frames(num=num_frames, start_pos=start_pos, step=self._stride)
                 data["fps"] = np.array(reader.fps, dtype=np.float32)  # / self._stride  # FIXME: OS v1.1 incorrect
 
-        data.update(
-            {
-                "num_frames": np.array(num_frames, dtype=np.float32),
-                "height": np.array(data["video"].shape[-2] * self._vae_downsample_rate, dtype=np.float32),
-                "width": np.array(data["video"].shape[-1] * self._vae_downsample_rate, dtype=np.float32),
-                "ar": np.array(data["video"].shape[-2] / data["video"].shape[-1], dtype=np.float32),
-            }
-        )
+        data["num_frames"] = np.array(num_frames, dtype=np.float32)
 
         if self._fmask_gen is not None:
             data["frames_mask"] = self._fmask_gen(num_frames)
@@ -303,8 +296,10 @@ class VideoDatasetRefactored(BaseDataset):
         self, target_size: Tuple[int, int], tokenizer: Optional[Callable[[str], np.ndarray]] = None
     ) -> List[dict]:
         transforms = []
+        vae_downsample_rate = self._vae_downsample_rate
 
         if self._buckets is not None:
+            vae_downsample_rate = 1
             transforms.extend(
                 [
                     {
@@ -324,6 +319,7 @@ class VideoDatasetRefactored(BaseDataset):
             )
 
         elif not self._vae_latent_folder:
+            vae_downsample_rate = 1
             transforms.append(
                 {
                     "operations": [
@@ -336,6 +332,21 @@ class VideoDatasetRefactored(BaseDataset):
                     "input_columns": ["video"],
                 }
             )
+
+        transforms.append(
+            {
+                "operations": [
+                    lambda video: (
+                        video,  # need to return the video itself to preserve the column
+                        np.array(video.shape[-2] * vae_downsample_rate, dtype=np.float32),
+                        np.array(video.shape[-1] * vae_downsample_rate, dtype=np.float32),
+                        np.array(video.shape[-2] / video.shape[-1], dtype=np.float32),
+                    )
+                ],
+                "input_columns": ["video"],
+                "output_columns": ["video", "height", "width", "ar"],
+            }
+        )
 
         if self._pre_patchify:
             transforms.append(

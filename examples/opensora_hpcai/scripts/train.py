@@ -380,7 +380,7 @@ def main(args):
             frames_mask_generator=mask_gen,
             buckets=buckets,
             filter_data=args.filter_data,
-            output_columns=["video", "caption", "mask", "frames_mask", "num_frames", "height", "width", "fps", "ar"],
+            output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
             pre_patchify=args.pre_patchify,
             patch_size=latte_model.patch_size,
             embed_dim=latte_model.hidden_size,
