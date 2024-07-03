@@ -8,9 +8,22 @@ except ImportError:
 from tqdm import tqdm
 
 from mindspore import Tensor, dtype, ops
-from mindspore.nn.probability.distribution import LogNormal
+from mindspore.nn.probability.distribution import Normal
 
 from .iddpm.diffusion_utils import mean_flat
+
+
+class LogisticNormal:
+    def __init__(self, loc, scale):
+        self._base_dist = Normal(loc, scale)
+        self._offset = Tensor([1])  # TODO: check this
+
+    def sample(self, shape):
+        x = self._base_dist.sample(shape)
+        z = ops.clamp(ops.sigmoid(x - self._offset.log()), 0, 1.0)  # FIXME: add eps
+        z_cumprod = (1 - z).cumprod(-1)
+        y = ops.pad(z, [0, 1], value=1) * ops.pad(z_cumprod, [1, 0], value=1)
+        return y
 
 
 class RFLOW:
@@ -140,8 +153,7 @@ class RFlowScheduler:
         elif sample_method == "uniform":
             self._sample_func = self._uniform_sample
         elif sample_method == "logit-normal":  # TODO: check this
-            # seed=None <- use global seed
-            self.distribution = LogNormal(Tensor([loc]), Tensor([scale]), seed=None, dtype=dtype.float32)
+            self.distribution = LogisticNormal(loc, scale)
             self._sample_func = self._logit_normal_sample
         else:
             raise ValueError(f"Unknown sample method: {sample_method}")
@@ -157,7 +169,7 @@ class RFlowScheduler:
         return ops.rand((size,), dtype=dtype.float32) * self.num_timesteps
 
     def _logit_normal_sample(self, size: int) -> Tensor:
-        return self.distribution.sample((size,)).squeeze() * self.num_timesteps  # noqa
+        return self.distribution.sample((size,))[0] * self.num_timesteps  # noqa
 
     def training_losses(
         self,
