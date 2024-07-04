@@ -149,7 +149,7 @@ class VideoDatasetRefactored(BaseDataset):
                         sample["vae_latent"] = os.path.join(vae_latent_folder, Path(item["video"]).with_suffix(".npz"))
                     data.append(sample)
             except KeyError as e:
-                _logger.error("CSV file requires `video` (file paths) column.")
+                _logger.error(f"CSV file requires `video` (file paths) column, but got {list(item.keys())}")
                 raise e
 
         if filter_data:
@@ -240,9 +240,10 @@ class VideoDatasetRefactored(BaseDataset):
 
         data["num_frames"] = np.array(num_frames, dtype=np.float32)
 
-        if self._fmask_gen is not None:
-            # return frames mask with respect to STDiT's latent temporal resolution
-            data["frames_mask"] = self._fmask_gen(self._t_compress_func(num_frames))
+        # return frames mask with respect to STDiT's latent temporal resolution
+        data["frames_mask"] = (
+            self._fmask_gen(self._t_compress_func(num_frames)) if self._fmask_gen is not None else None
+        )
 
         return tuple(data[c] for c in self.output_columns)
 

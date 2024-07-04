@@ -6,6 +6,8 @@ try:
 except ImportError:
     from typing_extensions import Literal  # FIXME: python 3.7
 
+import numpy as np
+
 import mindspore as ms
 from mindspore import Tensor, nn, ops
 
@@ -18,7 +20,7 @@ from ..schedulers.iddpm.diffusion_utils import (
 )
 from ..schedulers.rectified_flow import RFlowScheduler
 
-__all__ = ["DiffusionWithLoss"]
+__all__ = ["DiffusionWithLoss", "DiffusionWithLossFiTLike", "RFlowDiffusionWithLoss", "RFlowEvalDiffusionWithLoss"]
 
 logger = logging.getLogger(__name__)
 
@@ -427,3 +429,48 @@ class RFlowDiffusionWithLoss(DiffusionWithLoss):
             fps=fps,
             **kwargs,
         )
+
+
+class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
+    def __init__(
+        self,
+        *args,
+        num_eval_timesteps: int = 10,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.scheduler = RFlowScheduler(use_timestep_transform=False)
+        self._timesteps = Tensor(
+            np.linspace(0, self.scheduler.num_timesteps, num_eval_timesteps)[1:-1], dtype=ms.float32
+        )
+
+    def compute_loss(
+        self,
+        x: Tensor,
+        text_embed: Tensor,
+        mask: Optional[Tensor] = None,
+        frames_mask: Optional[Tensor] = None,
+        num_frames: Optional[Tensor] = None,
+        height: Optional[Tensor] = None,
+        width: Optional[Tensor] = None,
+        fps: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        loss, num_samples = Tensor(0, dtype=ms.float32), Tensor(0, dtype=ms.int32)
+        for t in self._timesteps:  # TODO: check t shape
+            num_samples += x.shape[0]
+            loss += self.scheduler.training_losses(
+                self.network,
+                x,
+                text_embed,
+                mask,
+                frames_mask=frames_mask,
+                num_frames=num_frames,
+                height=height,
+                width=width,
+                fps=fps,
+                t=t,
+                **kwargs,
+            )
+
+        return loss / num_samples  # TODO: loss by bucket

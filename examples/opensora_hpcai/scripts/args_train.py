@@ -306,6 +306,24 @@ def parse_train_args(parser):
         type=int,
         help="log interval in the unit of data sink size. E.g. if data sink size = 10, log_interval=2, log every 20 steps",
     )
+
+    # ---------- Validation ----------
+    parser.add_argument(
+        "--validate", type=str2bool, default=False, help="Whether to perform validation during training."
+    )
+    parser.add_argument("--val_interval", default=1, type=int, help="Validation frequency in epochs")
+    parser.add_argument(
+        "--num_eval_timesteps",
+        type=int,
+        default=10,
+        help="The number of timesteps to evaluate on (sampled equidistantly).",
+    )
+    parser.add_argument("--val_csv_path", type=str, help="the validation csv path")
+    parser.add_argument("--val_video_folder", type=str, help="the validation video folder path")
+    parser.add_argument("--val_text_embed_folder", type=str, help="the validation text embedding folder path")
+    parser.add_argument("--val_vae_latent_folder", type=str, help="the validation vae latent folder path")
+    parser.add_argument("--val_batch_size", default=1, type=int, help="the validation vae latent folder path")
+    parser.add_argument("--val_bucket_config", type=dict, help="Multi-resolution bucketing configuration.")
     return parser
 
 

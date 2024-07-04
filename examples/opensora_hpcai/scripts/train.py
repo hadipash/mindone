@@ -6,7 +6,7 @@ import logging
 import math
 import os
 import sys
-from typing import Tuple
+from typing import Optional, Tuple
 
 import yaml
 
@@ -21,10 +21,15 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 from args_train import parse_args
-from opensora.datasets.aspect import get_image_size, get_num_frames
+from opensora.datasets.aspect import get_image_size
 from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.vae.vae import SD_CONFIG, OpenSoraVAE_V1_2, VideoAutoencoderKL
-from opensora.pipelines import DiffusionWithLoss, DiffusionWithLossFiTLike, RFlowDiffusionWithLoss
+from opensora.pipelines import (
+    DiffusionWithLoss,
+    DiffusionWithLossFiTLike,
+    RFlowDiffusionWithLoss,
+    RFlowEvalDiffusionWithLoss,
+)
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.model_utils import WHITELIST_OPS
@@ -151,6 +156,132 @@ def set_all_reduce_fusion(
         ms.set_auto_parallel_context(all_reduce_fusion_config=split_list)
 
 
+def initialize_dataset(
+    args,
+    csv_path,
+    video_folder,
+    text_embed_folder,
+    vae_latent_folder,
+    batch_size,
+    img_h,
+    img_w,
+    latte_model,
+    vae,
+    bucket_config: Optional[dict] = None,
+    validation: bool = False,
+    device_num: int = 1,
+    rank_id: int = 0,
+):
+    if args.model_version == "v1":
+        from opensora.datasets.t2v_dataset import create_dataloader
+
+        ds_config = dict(
+            csv_path=csv_path,
+            video_folder=video_folder,
+            text_emb_folder=text_embed_folder,
+            return_text_emb=True,
+            vae_latent_folder=vae_latent_folder,
+            return_vae_latent=args.train_with_vae_latent,
+            vae_scale_factor=args.sd_scale_factor,
+            sample_size=img_w,  # img_w == img_h
+            sample_stride=args.frame_stride,
+            sample_n_frames=args.num_frames,
+            tokenizer=None,
+            video_column=args.video_column,
+            caption_column=args.caption_column,
+            disable_flip=args.disable_flip,
+            filter_data=args.filter_data,
+        )
+        dataloader = create_dataloader(
+            ds_config,
+            batch_size=batch_size,
+            shuffle=True,
+            device_num=device_num,
+            rank_id=rank_id,
+            num_parallel_workers=args.num_parallel_workers,
+            max_rowsize=args.max_rowsize,
+        )
+    else:
+        from opensora.datasets.bucket import Bucket, bucket_split_function
+        from opensora.datasets.mask_generator import MaskGenerator
+        from opensora.datasets.video_dataset_refactored import VideoDatasetRefactored
+
+        from mindone.data import create_dataloader
+
+        if validation:
+            mask_gen = None
+            all_buckets, individual_buckets = None, [None]
+            if bucket_config is not None:
+                all_buckets = Bucket(bucket_config)
+                # Build a new bucket for each resolution and number of frames for the validation stage
+                individual_buckets = [
+                    Bucket({res: {num_frames: [1.0, bucket_config[res][num_frames][1]]}})
+                    for res in bucket_config.keys()
+                    for num_frames in bucket_config[res].keys()
+                ]
+        else:
+            mask_gen = MaskGenerator(args.mask_ratios)
+            all_buckets = Bucket(bucket_config) if bucket_config is not None else None
+            individual_buckets = [all_buckets]
+
+        datasets = [
+            VideoDatasetRefactored(
+                csv_path=csv_path,
+                video_folder=video_folder,
+                text_emb_folder=text_embed_folder,
+                vae_latent_folder=vae_latent_folder,
+                vae_scale_factor=args.sd_scale_factor,
+                sample_n_frames=args.num_frames,
+                sample_stride=args.frame_stride,
+                frames_mask_generator=mask_gen,
+                t_compress_func=lambda x: vae.get_latent_size((x, None, None))[0],
+                buckets=buckets,
+                filter_data=args.filter_data,
+                output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
+                pre_patchify=args.pre_patchify,
+                patch_size=latte_model.patch_size,
+                embed_dim=latte_model.hidden_size,
+                num_heads=latte_model.num_heads,
+                max_target_size=args.max_image_size,
+                input_sq_size=latte_model.input_sq_size,
+                in_channels=latte_model.in_channels,
+            )
+            for buckets in individual_buckets
+        ]
+
+        project_columns = ["video", "caption", "mask", "frames_mask", "num_frames", "height", "width", "fps", "ar"]
+        if args.pre_patchify:
+            project_columns.extend(["spatial_pos", "spatial_mask", "temporal_pos", "temporal_mask"])
+
+        dataloaders = [
+            create_dataloader(
+                dataset,
+                batch_size=batch_size if all_buckets is None else 0,  # Turn off batching if using buckets
+                transforms=dataset.train_transforms(
+                    target_size=(img_h, img_w), tokenizer=None  # Tokenizer isn't supported yet
+                ),
+                shuffle=not validation,
+                device_num=device_num,
+                rank_id=rank_id,
+                num_workers=args.num_parallel_workers,
+                python_multiprocessing=args.data_multiprocessing,
+                max_rowsize=args.max_rowsize,
+                debug=args.debug,
+                # Sort output columns to match DiffusionWithLoss input
+                project_columns=project_columns,
+            )
+            for dataset in datasets
+        ]
+        dataloader = ms.dataset.ConcatDataset(dataloaders) if len(dataloaders) > 1 else dataloaders[0]
+
+        if all_buckets is not None:
+            hash_func, bucket_boundaries, bucket_batch_sizes = bucket_split_function(all_buckets)
+            dataloader = dataloader.bucket_batch_by_length(
+                ["video"], bucket_boundaries, bucket_batch_sizes, element_length_function=hash_func, drop_remainder=True
+            )
+    return dataloader
+
+
 def main(args):
     if args.add_datetime:
         time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -184,8 +315,6 @@ def main(args):
         assert img_h == img_w, "OpenSora v1 support square images only."
     if args.pre_patchify:
         img_h, img_w = args.max_image_size, args.max_image_size
-
-    num_frames = get_num_frames(args.num_frames)
 
     # 2.1 vae
     logger.info("vae init")
@@ -225,7 +354,7 @@ def main(args):
 
         # infer latent size
         VAE_Z_CH = vae.out_channels
-        latent_size = vae.get_latent_size((num_frames, img_h, img_w))
+        latent_size = vae.get_latent_size((args.num_frames, img_h, img_w))
     else:
         # vae cache
         vae = None
@@ -233,7 +362,7 @@ def main(args):
         VAE_Z_CH = SD_CONFIG["z_channels"]
         VAE_T_COMPRESS = 1
         VAE_S_COMPRESS = 8
-        latent_size = (num_frames // VAE_T_COMPRESS, img_h // VAE_S_COMPRESS, img_w // VAE_S_COMPRESS)
+        latent_size = (args.num_frames // VAE_T_COMPRESS, img_h // VAE_S_COMPRESS, img_w // VAE_S_COMPRESS)
 
     # 2.2 stdit
     if args.model_version == "v1":
@@ -301,6 +430,7 @@ def main(args):
     # 2.3 ldm with loss
     logger.info(f"Train with vae latent cache: {train_with_vae_latent}")
     diffusion = create_diffusion(timestep_respacing="")
+    latent_diffusion_eval = None
     pipeline_kwargs = dict(
         scale_factor=args.sd_scale_factor,
         cond_stage_trainable=False,
@@ -308,6 +438,8 @@ def main(args):
         video_emb_cached=train_with_vae_latent,
     )
     if args.noise_scheduler.lower() == "ddpm":
+        if args.validate:
+            logger.warning("Validation is supported with Rectified Flow noise scheduler.")
         if args.pre_patchify:
             additional_pipeline_kwargs = dict(
                 patch_size=latte_model.patch_size,
@@ -320,6 +452,15 @@ def main(args):
         else:
             pipeline_ = DiffusionWithLoss
     elif args.noise_scheduler.lower() == "rflow":
+        if args.validate:
+            latent_diffusion_eval = RFlowEvalDiffusionWithLoss(
+                latte_model,
+                diffusion,
+                num_eval_timesteps=args.num_eval_timesteps,
+                vae=vae,
+                text_encoder=None,
+                **pipeline_kwargs,
+            )
         pipeline_kwargs.update(
             dict(sample_method=args.sample_method, use_timestep_transform=args.use_timestep_transform)
         )
@@ -330,95 +471,41 @@ def main(args):
     latent_diffusion_with_loss = pipeline_(latte_model, diffusion, vae=vae, text_encoder=None, **pipeline_kwargs)
 
     # 3. create dataset
-    if args.model_version == "v1":
-        from opensora.datasets.t2v_dataset import create_dataloader
-
-        ds_config = dict(
-            csv_path=args.csv_path,
-            video_folder=args.video_folder,
-            text_emb_folder=args.text_embed_folder,
-            return_text_emb=True,
-            vae_latent_folder=args.vae_latent_folder,
-            return_vae_latent=train_with_vae_latent,
-            vae_scale_factor=args.sd_scale_factor,
-            sample_size=img_w,  # img_w == img_h
-            sample_stride=args.frame_stride,
-            sample_n_frames=num_frames,
-            tokenizer=None,
-            video_column=args.video_column,
-            caption_column=args.caption_column,
-            disable_flip=args.disable_flip,
-            filter_data=args.filter_data,
-        )
-        dataloader = create_dataloader(
-            ds_config,
-            batch_size=args.batch_size,
-            shuffle=True,
-            device_num=device_num,
-            rank_id=rank_id,
-            num_parallel_workers=args.num_parallel_workers,
-            max_rowsize=args.max_rowsize,
-        )
-    else:
-        from opensora.datasets.bucket import Bucket, bucket_split_function
-        from opensora.datasets.mask_generator import MaskGenerator
-        from opensora.datasets.video_dataset_refactored import VideoDatasetRefactored
-
-        from mindone.data import create_dataloader
-
-        mask_gen = MaskGenerator(args.mask_ratios)
-        buckets = Bucket(args.bucket_config) if args.bucket_config is not None else None
-
-        dataset = VideoDatasetRefactored(
-            csv_path=args.csv_path,
-            video_folder=args.video_folder,
-            text_emb_folder=args.text_embed_folder,
-            vae_latent_folder=args.vae_latent_folder,
-            vae_scale_factor=args.sd_scale_factor,
-            sample_n_frames=num_frames,
-            sample_stride=args.frame_stride,
-            frames_mask_generator=mask_gen,
-            t_compress_func=lambda x: vae.get_latent_size((x, None, None)),
-            buckets=buckets,
-            filter_data=args.filter_data,
-            output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
-            pre_patchify=args.pre_patchify,
-            patch_size=latte_model.patch_size,
-            embed_dim=latte_model.hidden_size,
-            num_heads=latte_model.num_heads,
-            max_target_size=args.max_image_size,
-            input_sq_size=latte_model.input_sq_size,
-            in_channels=latte_model.in_channels,
-        )
-
-        project_columns = ["video", "caption", "mask", "frames_mask", "num_frames", "height", "width", "fps", "ar"]
-        if args.pre_patchify:
-            project_columns.extend(["spatial_pos", "spatial_mask", "temporal_pos", "temporal_mask"])
-
-        dataloader = create_dataloader(
-            dataset,
-            batch_size=args.batch_size if buckets is None else 0,  # Turn off batching if using buckets
-            transforms=dataset.train_transforms(
-                target_size=(img_h, img_w), tokenizer=None  # Tokenizer isn't supported yet
-            ),
-            shuffle=True,
-            device_num=device_num,
-            rank_id=rank_id,
-            num_workers=args.num_parallel_workers,
-            python_multiprocessing=args.data_multiprocessing,
-            max_rowsize=args.max_rowsize,
-            debug=args.debug,
-            # Sort output columns to match DiffusionWithLoss input
-            project_columns=project_columns,
-        )
-
-        if buckets is not None:
-            hash_func, bucket_boundaries, bucket_batch_sizes = bucket_split_function(buckets)
-            dataloader = dataloader.bucket_batch_by_length(
-                ["video"], bucket_boundaries, bucket_batch_sizes, element_length_function=hash_func, drop_remainder=True
-            )
-
+    dataloader = initialize_dataset(
+        args,
+        args.csv_path,
+        args.video_folder,
+        args.text_embed_folder,
+        args.vae_latent_folder,
+        args.batch_size,
+        img_h,
+        img_w,
+        latte_model,
+        vae,
+        bucket_config=args.bucket_config,
+        device_num=device_num,
+        rank_id=rank_id,
+    )
     dataset_size = dataloader.get_dataset_size()
+
+    val_dataloader = None
+    if "val_csv_path" in args:
+        val_dataloader = initialize_dataset(
+            args,
+            args.val_csv_path,
+            args.val_video_folder,
+            args.val_text_embed_folder,
+            args.val_vae_latent_folder,
+            args.val_batch_size,
+            img_h,
+            img_w,
+            latte_model,
+            vae,
+            bucket_config=args.val_bucket_config,
+            validation=True,
+            device_num=device_num,
+            rank_id=rank_id,
+        )
 
     # compute total steps and data epochs (in unit of data sink size)
     if args.train_steps == -1:
@@ -541,9 +628,9 @@ def main(args):
     )
 
     if args.global_bf16:
-        model = Model(net_with_grads, amp_level="O0")
+        model = Model(net_with_grads, eval_network=latent_diffusion_eval, amp_level="O0")
     else:
-        model = Model(net_with_grads)
+        model = Model(net_with_grads, eval_network=latent_diffusion_eval)
 
     # callbacks
     callback = [TimeMonitor(args.log_interval)]
@@ -591,7 +678,7 @@ def main(args):
                 f"Learning rate: {args.start_learning_rate}",
                 f"Batch size: {args.batch_size if args.bucket_config is None else 'Variable'}",
                 f"Image size: {(img_h, img_w) if args.bucket_config is None else 'Variable'}",
-                f"Frames: {num_frames if args.bucket_config is None else 'Variable'}",
+                f"Frames: {args.num_frames if args.bucket_config is None else 'Variable'}",
                 f"Latent size: {latent_size if args.bucket_config is None else 'Variable'}",
                 f"Weight decay: {args.weight_decay}",
                 f"Grad accumulation steps: {args.gradient_accumulation_steps}",
@@ -615,11 +702,14 @@ def main(args):
             yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
 
     # 6. train
-    model.train(
+    model.fit(
         sink_epochs,
         dataloader,
+        valid_dataset=val_dataloader,
+        valid_frequency=args.val_interval,
         callbacks=callback,
         dataset_sink_mode=args.dataset_sink_mode,
+        valid_dataset_sink_mode=False,  # TODO: add support?
         sink_size=args.sink_size,
         initial_epoch=start_epoch,
     )

@@ -169,6 +169,7 @@ class RFlowScheduler:
         height: Optional[Tensor] = None,
         width: Optional[Tensor] = None,
         fps: Optional[Tensor] = None,
+        t: Optional[Tensor] = None,
         **kwargs,
     ):
         """
@@ -176,11 +177,12 @@ class RFlowScheduler:
         Arguments format copied from opensora/schedulers/iddpm/gaussian_diffusion.py/training_losses
         Note: t is int tensor and should be rescaled from [0, num_timesteps-1] to [1,0]
         """
-        t = self._sample_func(x_start.shape[0])
-        if self.use_timestep_transform:
-            t = timestep_transform(
-                t, height, width, num_frames, scale=self.transform_scale, num_timesteps=self.num_timesteps
-            )
+        if t is None:
+            t = self._sample_func(x_start.shape[0])
+            if self.use_timestep_transform:
+                t = timestep_transform(
+                    t, height, width, num_frames, scale=self.transform_scale, num_timesteps=self.num_timesteps
+                )
 
         noise = ops.randn_like(x_start)
 

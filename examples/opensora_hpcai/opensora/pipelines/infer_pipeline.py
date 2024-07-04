@@ -17,7 +17,7 @@ from ..models.vae.vae import VideoAutoencoderKL, VideoAutoencoderPipeline
 from ..schedulers.iddpm import create_diffusion
 from ..schedulers.rectified_flow import RFLOW
 
-__all__ = ["InferPipeline"]
+__all__ = ["InferPipeline", "InferPipelineFiTLike"]
 
 
 class InferPipeline:
