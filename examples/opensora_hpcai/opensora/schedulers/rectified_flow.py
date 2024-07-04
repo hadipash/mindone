@@ -8,22 +8,9 @@ except ImportError:
 from tqdm import tqdm
 
 from mindspore import Tensor, dtype, ops
-from mindspore.nn.probability.distribution import Normal
 
+from ..utils.distributions import LogisticNormal
 from .iddpm.diffusion_utils import mean_flat
-
-
-class LogisticNormal:
-    def __init__(self, loc, scale):
-        self._base_dist = Normal(loc, scale)
-        self._offset = Tensor([1])  # TODO: check this
-
-    def sample(self, shape):
-        x = self._base_dist.sample(shape)
-        z = ops.clamp(ops.sigmoid(x - self._offset.log()), 0, 1.0)  # FIXME: add eps
-        z_cumprod = (1 - z).cumprod(-1)
-        y = ops.pad(z, [0, 1], value=1) * ops.pad(z_cumprod, [1, 0], value=1)
-        return y
 
 
 class RFLOW:

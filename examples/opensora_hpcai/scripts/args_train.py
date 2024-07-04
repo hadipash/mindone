@@ -248,7 +248,7 @@ def parse_train_args(parser):
         "--aspect_ratio", type=str, help=f"Supported video aspect ratios: {list(ASPECT_RATIO_MAP.keys())}"
     )
     parser.add_argument("--num_frames", default=16, type=int, help="the num of frames used to initiate model")
-    parser.add_argument("--frame_stride", default=3, type=int, help="frame sampling stride")
+    parser.add_argument("--frame_stride", default=1, type=int, help="frame sampling stride")
     parser.add_argument("--mask_ratios", type=dict, help="Masking ratios")
     parser.add_argument("--bucket_config", type=dict, help="Multi-resolution bucketing configuration")
     parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")

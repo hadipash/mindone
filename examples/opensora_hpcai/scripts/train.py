@@ -378,6 +378,7 @@ def main(args):
             sample_n_frames=num_frames,
             sample_stride=args.frame_stride,
             frames_mask_generator=mask_gen,
+            t_compress_func=lambda x: vae.get_latent_size((x, None, None)),
             buckets=buckets,
             filter_data=args.filter_data,
             output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
