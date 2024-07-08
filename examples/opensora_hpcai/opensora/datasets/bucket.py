@@ -48,7 +48,6 @@ class Bucket:
         self.t_criteria = t_criteria
         self.ar_criteria = ar_criteria
         self.num_bucket = num_bucket
-        print(f"Number of buckets: {num_bucket}")
 
     def get_bucket_id(self, T, H, W, frame_interval=1):
         resolution = H * W

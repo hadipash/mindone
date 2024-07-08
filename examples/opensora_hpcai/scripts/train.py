@@ -21,7 +21,7 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 from args_train import parse_args
-from opensora.datasets.aspect import get_image_size
+from opensora.datasets.aspect import ASPECT_RATIOS, get_image_size
 from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.vae.vae import SD_CONFIG, OpenSoraVAE_V1_2, VideoAutoencoderKL
 from opensora.pipelines import (
@@ -32,6 +32,7 @@ from opensora.pipelines import (
 )
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
+from opensora.utils.metrics import Loss
 from opensora.utils.model_utils import WHITELIST_OPS
 
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallbackEpoch
@@ -209,7 +210,7 @@ def initialize_dataset(
         from mindone.data import create_dataloader
 
         if validation:
-            mask_gen = None
+            mask_gen = MaskGenerator({"identity": 1.0})
             all_buckets, individual_buckets = None, [None]
             if bucket_config is not None:
                 all_buckets = Bucket(bucket_config)
@@ -264,6 +265,7 @@ def initialize_dataset(
                 device_num=device_num,
                 rank_id=rank_id,
                 num_workers=args.num_parallel_workers,
+                drop_remainder=not validation,
                 python_multiprocessing=args.data_multiprocessing,
                 max_rowsize=args.max_rowsize,
                 debug=args.debug,
@@ -277,7 +279,11 @@ def initialize_dataset(
         if all_buckets is not None:
             hash_func, bucket_boundaries, bucket_batch_sizes = bucket_split_function(all_buckets)
             dataloader = dataloader.bucket_batch_by_length(
-                ["video"], bucket_boundaries, bucket_batch_sizes, element_length_function=hash_func, drop_remainder=True
+                ["video"],
+                bucket_boundaries,
+                bucket_batch_sizes,
+                element_length_function=hash_func,
+                drop_remainder=not validation,
             )
     return dataloader
 
@@ -430,7 +436,7 @@ def main(args):
     # 2.3 ldm with loss
     logger.info(f"Train with vae latent cache: {train_with_vae_latent}")
     diffusion = create_diffusion(timestep_respacing="")
-    latent_diffusion_eval = None
+    latent_diffusion_eval, metrics = None, None
     pipeline_kwargs = dict(
         scale_factor=args.sd_scale_factor,
         cond_stage_trainable=False,
@@ -453,6 +459,14 @@ def main(args):
             pipeline_ = DiffusionWithLoss
     elif args.noise_scheduler.lower() == "rflow":
         if args.validate:
+            if args.val_bucket_config is None:
+                metrics = {"Validation loss": Loss(str((img_h, img_w)), {(img_h, img_w)}, args.num_frames)}
+            else:
+                metrics = {
+                    f"Validation loss {res}x{frames}": Loss(res, set(ASPECT_RATIOS[res][1].values()), frames)
+                    for res, val in args.val_bucket_config.items()
+                    for frames in val.keys()
+                }
             latent_diffusion_eval = RFlowEvalDiffusionWithLoss(
                 latte_model,
                 diffusion,
@@ -489,7 +503,7 @@ def main(args):
     dataset_size = dataloader.get_dataset_size()
 
     val_dataloader = None
-    if "val_csv_path" in args:
+    if args.validate:
         val_dataloader = initialize_dataset(
             args,
             args.val_csv_path,
@@ -628,9 +642,9 @@ def main(args):
     )
 
     if args.global_bf16:
-        model = Model(net_with_grads, eval_network=latent_diffusion_eval, amp_level="O0")
+        model = Model(net_with_grads, eval_network=latent_diffusion_eval, metrics=metrics, amp_level="O0")
     else:
-        model = Model(net_with_grads, eval_network=latent_diffusion_eval)
+        model = Model(net_with_grads, eval_network=latent_diffusion_eval, metrics=metrics)
 
     # callbacks
     callback = [TimeMonitor(args.log_interval)]

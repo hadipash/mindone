@@ -457,7 +457,8 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
         **kwargs,
     ):
         loss, num_samples = Tensor(0, dtype=ms.float32), Tensor(0, dtype=ms.int32)
-        for t in self._timesteps:  # TODO: check t shape
+        for t in self._timesteps:
+            t = t.repeat(x.shape[0])
             num_samples += x.shape[0]
             loss += self.scheduler.training_losses(
                 self.network,
@@ -473,4 +474,4 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
                 **kwargs,
             )
 
-        return loss / num_samples  # TODO: loss by bucket
+        return loss / num_samples, height, width, num_frames
