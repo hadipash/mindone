@@ -71,7 +71,7 @@ bucket_config:
 
 
 # ---------- Validation ----------
-validate: True
+validate: False
 val_interval: 10
 num_eval_timesteps: 10
 
