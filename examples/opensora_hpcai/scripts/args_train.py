@@ -42,6 +42,7 @@ def parse_train_args(parser):
     parser.add_argument("--video_folder", default="", type=str, help="root dir for the video data")
     parser.add_argument("--text_embed_folder", type=str, help="root dir for the text embeding data")
     parser.add_argument("--vae_latent_folder", type=str, help="root dir for the vae latent data")
+    parser.add_argument("--filter_data", default=False, type=str2bool, help="Filter non-existing videos.")
     parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
     parser.add_argument(
         "--add_datetime", default=True, type=str, help="If True, add datetime subfolder under output_path"
@@ -66,6 +67,14 @@ def parse_train_args(parser):
         choices=["conv3d", "conv2d", "linear"],
         help="patchify_conv3d_replace, conv2d - equivalent conv2d to replace conv3d patchify, linear - equivalent linear layer to replace conv3d patchify  ",
     )
+    parser.add_argument(
+        "--vae_type",
+        type=str,
+        default=None,
+        choices=[None, "OpenSora-VAE-v1.2", "VideoAutoencoderKL"],
+        help="If None, use VideoAutoencoderKL, which is a spatial VAE from SD, for opensora v1.0 and v1.1. \
+                If OpenSora-VAE-v1.2, will use 3D VAE (spatial + temporal), typically for opensora v1.2",
+    )
     # ms
     parser.add_argument("--debug", type=str2bool, default=False, help="Execute inference in debug mode.")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
@@ -75,7 +84,16 @@ def parse_train_args(parser):
     parser.add_argument(
         "--parallel_mode", default="data", type=str, choices=["data", "optim"], help="parallel mode: data, optim"
     )
-    parser.add_argument("--enable_dvm", default=False, type=str2bool, help="enable dvm mode")
+    parser.add_argument(
+        "--jit_level",
+        default="O0",
+        type=str,
+        choices=["O0", "O1", "O2"],
+        help="Used to control the compilation optimization level. Supports [“O0”, “O1”, “O2”]."
+        "O0: Except for optimizations that may affect functionality, all other optimizations are turned off, adopt KernelByKernel execution mode."
+        "O1: Using commonly used optimizations and automatic operator fusion optimizations, adopt KernelByKernel execution mode."
+        "O2: Ultimate performance optimization, adopt Sink execution mode.",
+    )
 
     # training hyper-params
     parser.add_argument(
@@ -112,6 +130,12 @@ def parse_train_args(parser):
         type=int,
         default=None,
         help="If not None, split batch_size*num_frames into smaller ones for VAE encoding to reduce memory limitation",
+    )
+    parser.add_argument(
+        "--vae_micro_frame_size",
+        type=int,
+        default=17,
+        help="If not None, split batch_size*num_frames into smaller ones for VAE encoding to reduce memory limitation. Used by temporal vae",
     )
     parser.add_argument("--start_learning_rate", default=1e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--end_learning_rate", default=1e-7, type=float, help="The end learning rate for Adam.")

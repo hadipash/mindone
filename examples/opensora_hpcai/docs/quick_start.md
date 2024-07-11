@@ -60,6 +60,12 @@ Prepare the model checkpoints of T5, VAE, and STDiT and put them under `models/`
     Convert to ms checkpoint: `python tools/convert_pt2ms.py --src /path/to/PixArt-XL-2-512x512.pth --target models/PixArt-XL-2-512x512.ckpt`
     It will be used for better model initialization.
 
+
+### OpenSora v1.2
+
+- 3D VAE:
+    `python tools/convert_vae_3d.py --src path/to/OpenSora-VAE-v1.2/model.safetensors --target models/OpenSora-VAE-v1.2/model.ckpt`
+
 ## Inference
 
 ### Text-to-Video
@@ -262,26 +268,16 @@ meaning that the buckets are selected based on resolution alone.
 
 #### Notes about MindSpore 2.3
 
-Training on MS2.3 allows much better performance with its new features (such as kbk and dvm)
-
-To enable kbk mode on ms2.3, please set
-```
-export MS_ENABLE_ACLNN=1
-export GRAPH_OP_RUN=1
-```
-
-To improve training performance, you may append `--enable_dvm=True` to the training command.
+Training on MS2.3 allows much better performance with `jit_level` (`"O0"`, `"O1"`, `"O2"`)
 
 Here is an example for training on MS2.3:
 ```
-export MS_ENABLE_ACLNN=1
-export GRAPH_OP_RUN=1
 
 python scripts/train.py --config configs/opensora/train/stdit_256x256x16.yaml \
     --csv_path "../videocomposer/datasets/webvid5/video_caption.csv" \
     --video_folder "../videocomposer/datasets/webvid5" \
     --text_embed_folder "../videocomposer/datasets/webvid5" \
-    --enable_dvm=True \
+    --jit_level="O1" \
 ```
 
 
