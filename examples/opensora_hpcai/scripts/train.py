@@ -32,12 +32,12 @@ from opensora.pipelines import (
 )
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
+from opensora.utils.ema import EMA
 from opensora.utils.metrics import Loss
 from opensora.utils.model_utils import WHITELIST_OPS
 
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallbackEpoch
 from mindone.trainers.checkpoint import resume_train_network
-from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.optim import create_optimizer
 from mindone.trainers.train_step import TrainOneStepWrapper
@@ -621,14 +621,8 @@ def main(args):
         loss_scaler.last_overflow_iter = last_overflow_iter
 
     # trainer (standalone and distributed)
-    ema = (
-        EMA(
-            latent_diffusion_with_loss.network,
-            ema_decay=0.9999,
-        )
-        if args.use_ema
-        else None
-    )
+    # BUG: not saving weights properly when offloading is enabled
+    ema = EMA(latent_diffusion_with_loss.network, ema_decay=0.9999, offloading=False) if args.use_ema else None
 
     net_with_grads = TrainOneStepWrapper(
         latent_diffusion_with_loss,
