@@ -430,7 +430,9 @@ def main(args):
         logger.info("Use random initialization for Latte")
     latte_model.set_train(True)
 
-    if latent_size[1] % latte_model.patch_size[1] != 0 or latent_size[2] % latte_model.patch_size[2] != 0:
+    if (latent_size[1] and latent_size[1] % latte_model.patch_size[1]) or (
+        latent_size[2] and latent_size[2] % latte_model.patch_size[2]
+    ):
         height_ = latte_model.patch_size[1] * 8  # FIXME
         width_ = latte_model.patch_size[2] * 8  # FIXME
         msg = f"Image height ({img_h}) and width ({img_w}) should be divisible by {height_} and {width_} respectively."

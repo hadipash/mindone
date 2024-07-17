@@ -676,7 +676,7 @@ def parse_args():
     parser.add_argument(
         "--save_latent",
         type=str2bool,
-        default=True,
+        default=False,
         help="Save denoised video latent. If True, the denoised latents will be saved in $output_path/denoised_latents",
     )
     parser.add_argument(
