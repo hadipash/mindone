@@ -315,7 +315,7 @@ def main(args):
         img_h, img_w = args.max_image_size, args.max_image_size
     elif args.image_size is not None:
         img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
-    elif args.bucket_config is not None:
+    elif args.bucket_config is None:
         if args.resolution is None or args.aspect_ratio is None:
             raise ValueError(
                 "`resolution` and `aspect_ratio` must be provided if `image_size` or `bucket_config` are not provided"
