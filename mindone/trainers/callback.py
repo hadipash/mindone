@@ -238,6 +238,10 @@ class EvalSaveCallback(Callback):
                 if self.ema is not None:
                     self.ema.swap_after_eval()
 
+            metrics = cb_params.get("metrics")
+            if metrics is not None:
+                _logger.info(f"Eval result epoch {cur_epoch}: {metrics}")
+
             self.last_epoch_end_time = time.time()
 
     def on_train_end(self, run_context):

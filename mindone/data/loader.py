@@ -62,8 +62,9 @@ def create_dataloader(
         raise AttributeError(f"{type(dataset).__name__} must have `output_columns` attribute.")
 
     ms.dataset.config.set_prefetch_size(prefetch_size)
-    ms.dataset.config.set_enable_shared_mem(True)
     ms.dataset.config.set_debug_mode(debug)
+    if not ms.dataset.config.get_enable_shared_mem():  # hide shared memory notification
+        ms.dataset.config.set_enable_shared_mem(True)
 
     if enable_modelarts:
         device_num = get_local_rank_size()

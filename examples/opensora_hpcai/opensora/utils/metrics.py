@@ -15,7 +15,7 @@ class Loss(MSLoss):
         self._num_frames = num_frames
 
     def update(self, loss: Tensor, height: Tensor, width: Tensor, num_frames: Tensor):
-        if (int(height.item()), int(width.item())) in self._res and int(num_frames.item()) == self._num_frames:
+        if (int(height[0].item()), int(width[0].item())) in self._res and int(num_frames[0].item()) == self._num_frames:
             self._sum_loss += loss.item()
             self._total_num += 1
 

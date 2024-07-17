@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 import yaml
 
 import mindspore as ms
-from mindspore import Model, nn
+from mindspore import nn
 from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
@@ -34,7 +34,7 @@ from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.ema import EMA
 from opensora.utils.metrics import Loss
-from opensora.utils.model_utils import WHITELIST_OPS
+from opensora.utils.model_utils import WHITELIST_OPS, Model
 
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallbackEpoch
 from mindone.trainers.checkpoint import resume_train_network
@@ -310,17 +310,20 @@ def main(args):
     # 2. model initiate and weight loading
     dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
 
-    if args.image_size is not None:
+    img_h, img_w = None, None
+    if args.pre_patchify:
+        img_h, img_w = args.max_image_size, args.max_image_size
+    elif args.image_size is not None:
         img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
-    else:
+    elif args.bucket_config is not None:
         if args.resolution is None or args.aspect_ratio is None:
-            raise ValueError("`resolution` and `aspect_ratio` must be provided if `image_size` is not provided")
+            raise ValueError(
+                "`resolution` and `aspect_ratio` must be provided if `image_size` or `bucket_config` are not provided"
+            )
         img_h, img_w = get_image_size(args.resolution, args.aspect_ratio)
 
     if args.model_version == "v1":
         assert img_h == img_w, "OpenSora v1 support square images only."
-    if args.pre_patchify:
-        img_h, img_w = args.max_image_size, args.max_image_size
 
     # 2.1 vae
     logger.info("vae init")
