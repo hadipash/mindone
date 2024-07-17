@@ -41,7 +41,7 @@ optim_eps: 1e-15
 weight_decay: 0.
 
 epochs: 2000
-ckpt_save_interval: 100
+ckpt_save_interval: &save_interval 100
 
 mask_ratios:
   random: 0.05
@@ -72,7 +72,7 @@ bucket_config:
 
 # ---------- Validation ----------
 validate: False
-val_interval: 10
+val_interval: *save_interval
 num_eval_timesteps: 10
 
 val_csv_path:

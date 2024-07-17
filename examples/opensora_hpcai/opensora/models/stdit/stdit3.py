@@ -27,7 +27,8 @@ from opensora.models.layers.blocks import (
 )
 from opensora.models.layers.rotary_embedding import RotaryEmbedding
 
-from mindspore import Parameter, Tensor, dtype, load_checkpoint, load_param_into_net, nn, ops
+import mindspore as ms
+from mindspore import Parameter, Tensor, load_checkpoint, load_param_into_net, nn, ops
 
 from mindone.models.utils import constant_, normal_, xavier_uniform_
 
@@ -286,7 +287,7 @@ class STDiT3(nn.Cell):
             b.recompute()
         if isinstance(b, nn.CellList):
             self.recompute(b[-1])
-        else:
+        elif ms.get_context("mode") == ms.GRAPH_MODE:
             b.add_flags(output_no_recompute=True)
 
     def initialize_weights(self):
@@ -345,7 +346,8 @@ class STDiT3(nn.Cell):
         base_size = round(S**0.5)
         resolution_sq = (height[0] * width[0]) ** 0.5
         scale = resolution_sq / self.input_sq_size
-        pos_emb = self.pos_embed(H, W, scale=scale, base_size=base_size)
+        # Position embedding doesn't need gradient
+        pos_emb = ops.stop_gradient(self.pos_embed(H, W, scale=scale, base_size=base_size))
 
         # === get timestep embed ===
         t = self.t_embedder(timestep)
@@ -389,7 +391,7 @@ class STDiT3(nn.Cell):
         x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)
 
         # cast to float32 for better accuracy
-        return x.astype(dtype.float32)
+        return x.astype(ms.float32)
 
     def construct_with_cfg(self, x, timestep, y, cfg_scale, cfg_channel=None, **kwargs):
         # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
