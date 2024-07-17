@@ -17,6 +17,7 @@ max_rowsize: 256
 
 # precision
 amp_level: "O2"
+vae_dtype: bf16
 dtype: bf16
 loss_scaler_type: static
 init_loss_scale: 1
@@ -36,8 +37,8 @@ optim: "adamw_re"
 optim_eps: 1.e-8
 weight_decay: 0.
 
-epochs: 12000
-ckpt_save_interval: 100
+epochs: 10000
+ckpt_save_interval: 200
 
 mask_ratios:
   identity: 0.75

@@ -17,6 +17,7 @@ max_rowsize: 256
 
 # precision
 amp_level: "O2"
+vae_dtype: bf16
 dtype: bf16
 loss_scaler_type: static
 init_loss_scale: 1
