@@ -329,17 +329,17 @@ class STDiT3(nn.Cell):
         base_size = round(S**0.5)
         resolution_sq = (height[0] * width[0]) ** 0.5
         scale = resolution_sq / self.input_sq_size
-        pos_emb = self.pos_embed(x, H, W, scale=scale, base_size=base_size)
+        pos_emb = self.pos_embed(H, W, scale=scale, base_size=base_size)
 
         # === get timestep embed ===
-        t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
+        t = self.t_embedder(timestep)  # [B, C]
         fps = self.fps_embedder(fps.unsqueeze(1), B)
         t = t + fps
         t_mlp = self.t_block(t)
         t0 = t0_mlp = None
         if frames_mask is not None:
             t0_timestep = ops.zeros_like(timestep)
-            t0 = self.t_embedder(t0_timestep, dtype=x.dtype)
+            t0 = self.t_embedder(t0_timestep)
             t0 = t0 + fps
             t0_mlp = self.t_block(t0)
 

@@ -328,7 +328,7 @@ class STDiT(nn.Cell):
         # x = rearrange(x, "B T S C -> B (T S) C")
         x = ops.reshape(x, (B, TS, C))
 
-        t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
+        t = self.t_embedder(timestep)  # [B, C]
         # why project again on t ?
         t0 = self.t_block(t)  # [B, C]
         y = self.y_embedder(y, self.training)  # [B, 1, N_token, C]
