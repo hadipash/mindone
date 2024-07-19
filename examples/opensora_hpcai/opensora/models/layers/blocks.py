@@ -394,7 +394,7 @@ class T2IFinalLayer(nn.Cell):
     The final layer of PixArt.
     """
 
-    def __init__(self, hidden_size, num_patch, out_channels, d_t=None, d_s=None):
+    def __init__(self, hidden_size, num_patch, out_channels, d_t=None, d_s=None, enable_frames_mask: bool = False):
         super().__init__()
         self.norm_final = LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         # (1152, 4*8)
@@ -403,6 +403,7 @@ class T2IFinalLayer(nn.Cell):
         self.out_channels = out_channels
         self.d_t = d_t
         self.d_s = d_s
+        self._enable_fm = enable_frames_mask
 
     def construct(
         self,
@@ -418,7 +419,7 @@ class T2IFinalLayer(nn.Cell):
         shift, scale = (self.scale_shift_table[None] + t[:, None]).chunk(2, axis=1)
         x = t2i_modulate(self.norm_final(x), shift, scale)
 
-        if frames_mask is not None:
+        if self._enable_fm:
             shift_zero, scale_zero = (self.scale_shift_table[None] + t0[:, None]).chunk(2, axis=1)
             x_zero = t2i_modulate(self.norm_final(x), shift_zero, scale_zero)
             x = t_mask_select(frames_mask, x, x_zero, T, S)

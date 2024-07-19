@@ -53,6 +53,7 @@ class DiffusionWithLoss(nn.Cell):
         cond_stage_trainable: bool = False,
         text_emb_cached: bool = True,
         video_emb_cached: bool = False,
+        enable_frames_mask: bool = False,
     ):
         super().__init__()
         # TODO: is set_grad() necessary?
@@ -60,6 +61,7 @@ class DiffusionWithLoss(nn.Cell):
         self.vae = vae
         self.diffusion = diffusion
         self.text_encoder = text_encoder
+        self._enable_fm = enable_frames_mask
 
         self.scale_factor = scale_factor
         self.cond_stage_trainable = cond_stage_trainable
@@ -204,7 +206,7 @@ class DiffusionWithLoss(nn.Cell):
         noise = ops.randn_like(x)
         x_t = self.diffusion.q_sample(x.to(ms.float32), t, noise=noise)
 
-        if frames_mask is not None:
+        if self._enable_fm:
             t0 = ops.zeros_like(t)
             x_t0 = self.diffusion.q_sample(x, t0, noise=noise)
             x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)
@@ -338,7 +340,7 @@ class DiffusionWithLossFiTLike(DiffusionWithLoss):
         noise = ops.randn_like(x)
         x_t = self.diffusion.q_sample(x.to(ms.float32), t, noise=noise)
 
-        if frames_mask is not None:
+        if self._enable_fm:
             t0 = ops.zeros_like(t)
             x_t0 = self.diffusion.q_sample(x.to(ms.float32), t0, noise=noise)
             x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)

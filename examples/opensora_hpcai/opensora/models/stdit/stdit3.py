@@ -262,7 +262,9 @@ class STDiT3(nn.Cell):
         )
 
         # final layer
-        self.final_layer = T2IFinalLayer(hidden_size, np.prod(self.patch_size).item(), self.out_channels)
+        self.final_layer = T2IFinalLayer(
+            hidden_size, np.prod(self.patch_size).item(), self.out_channels, enable_frames_mask=True
+        )
 
         self.initialize_weights()
         if only_train_temporal:
@@ -354,12 +356,12 @@ class STDiT3(nn.Cell):
         fps = self.fps_embedder(fps.unsqueeze(1), B)
         t = t + fps
         t_mlp = self.t_block(t)
-        t0 = t0_mlp = None
-        if frames_mask is not None:
-            t0_timestep = ops.zeros_like(timestep)
-            t0 = self.t_embedder(t0_timestep)
-            t0 = t0 + fps
-            t0_mlp = self.t_block(t0)
+
+        # frames mask branch
+        t0_timestep = ops.zeros_like(timestep)
+        t0 = self.t_embedder(t0_timestep)
+        t0 = t0 + fps
+        t0_mlp = self.t_block(t0)
 
         # === get y embed ===
         if not self.skip_y_embedder:

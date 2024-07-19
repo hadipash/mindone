@@ -280,7 +280,9 @@ class STDiT2(nn.Cell):
                 for i in range(self.depth)
             ]
         )
-        self.final_layer = T2IFinalLayer(hidden_size, np.prod(self.patch_size).item(), self.out_channels)
+        self.final_layer = T2IFinalLayer(
+            hidden_size, np.prod(self.patch_size).item(), self.out_channels, enable_frames_mask=True
+        )
 
         # multi_res
         assert self.hidden_size % 3 == 0, "hidden_size must be divisible by 3"

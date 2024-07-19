@@ -187,10 +187,11 @@ class RFlowScheduler:
         noise = ops.randn_like(x_start)
 
         x_t = self.add_noise(x_start, noise, t)
-        if frames_mask is not None:
-            t0 = ops.zeros_like(t)
-            x_t0 = self.add_noise(x_start, noise, t0)
-            x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)
+
+        # frames mask branch
+        t0 = ops.zeros_like(t)
+        x_t0 = self.add_noise(x_start, noise, t0)
+        x_t = ops.where(frames_mask[:, None, :, None, None], x_t, x_t0)
 
         text_embed = text_embed[:, None, :]
         model_output = model(

@@ -450,6 +450,7 @@ def main(args):
         cond_stage_trainable=False,
         text_emb_cached=True,
         video_emb_cached=train_with_vae_latent,
+        enable_frames_mask=args.model_version != "v1",
     )
     if args.noise_scheduler.lower() == "ddpm":
         if args.validate:
