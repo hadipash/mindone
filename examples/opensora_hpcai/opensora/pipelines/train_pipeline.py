@@ -444,7 +444,7 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
         super().__init__(*args, **kwargs)
         self.scheduler = RFlowScheduler(use_timestep_transform=False)
         self._timesteps = Tensor(
-            np.linspace(0, self.scheduler.num_timesteps, num_eval_timesteps)[1:-1], dtype=ms.float32
+            np.linspace(0, self.scheduler.num_timesteps, num_eval_timesteps + 2)[1:-1], dtype=ms.float32
         )
 
     def compute_loss(
@@ -459,10 +459,9 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
         fps: Optional[Tensor] = None,
         **kwargs,
     ):
-        loss, num_samples = Tensor(0, dtype=ms.float32), Tensor(0, dtype=ms.int32)
+        loss = Tensor(0, dtype=ms.float32)
         for t in self._timesteps:
             t = t.repeat(x.shape[0])
-            num_samples += x.shape[0]
             loss += self.scheduler.training_losses(
                 self.network,
                 x,
@@ -477,4 +476,4 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
                 **kwargs,
             )
 
-        return loss / num_samples, height, width, num_frames
+        return loss / len(self._timesteps), height, width, num_frames
