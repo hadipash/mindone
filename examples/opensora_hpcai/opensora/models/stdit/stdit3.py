@@ -81,7 +81,7 @@ class STDiT3Block(nn.Cell):
         y: Tensor,
         t: Tensor,
         mask: Optional[Tensor] = None,  # text mask
-        x_mask: Optional[Tensor] = None,  # temporal mask
+        frames_mask: Optional[Tensor] = None,  # temporal mask
         t0: Optional[Tensor] = None,  # t with timestamp=0
         T: Optional[int] = None,  # number of frames
         S: Optional[int] = None,  # number of pixel patches
@@ -92,17 +92,16 @@ class STDiT3Block(nn.Cell):
             self.scale_shift_table[None] + t.reshape(B, 6, -1)
         ).chunk(6, axis=1)
 
-        shift_msa_zero, scale_msa_zero, gate_msa_zero, shift_mlp_zero, scale_mlp_zero, gate_mlp_zero = (None,) * 6
-        if x_mask is not None:
-            shift_msa_zero, scale_msa_zero, gate_msa_zero, shift_mlp_zero, scale_mlp_zero, gate_mlp_zero = (
-                self.scale_shift_table[None] + t0.reshape(B, 6, -1)
-            ).chunk(6, axis=1)
+        # frames mask branch
+        shift_msa_zero, scale_msa_zero, gate_msa_zero, shift_mlp_zero, scale_mlp_zero, gate_mlp_zero = (
+            self.scale_shift_table[None] + t0.reshape(B, 6, -1)
+        ).chunk(6, axis=1)
 
         # modulate (attention)
         x_m = t2i_modulate(self.norm1(x), shift_msa, scale_msa)
-        if x_mask is not None:
-            x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
-            x_m = t_mask_select(x_mask, x_m, x_m_zero, T, S)
+        # frames mask branch
+        x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
+        x_m = t_mask_select(frames_mask, x_m, x_m_zero, T, S)
 
         # attention
         if self.temporal:
@@ -116,9 +115,9 @@ class STDiT3Block(nn.Cell):
 
         # modulate (attention)
         x_m_s = gate_msa * x_m
-        if x_mask is not None:
-            x_m_s_zero = gate_msa_zero * x_m
-            x_m_s = t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
+        # frames mask branch
+        x_m_s_zero = gate_msa_zero * x_m
+        x_m_s = t_mask_select(frames_mask, x_m_s, x_m_s_zero, T, S)
 
         # residual
         x = x + self.drop_path(x_m_s)
@@ -128,18 +127,18 @@ class STDiT3Block(nn.Cell):
 
         # modulate (MLP)
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
-        if x_mask is not None:
-            x_m_zero = t2i_modulate(self.norm2(x), shift_mlp_zero, scale_mlp_zero)
-            x_m = t_mask_select(x_mask, x_m, x_m_zero, T, S)
+        # frames mask branch
+        x_m_zero = t2i_modulate(self.norm2(x), shift_mlp_zero, scale_mlp_zero)
+        x_m = t_mask_select(frames_mask, x_m, x_m_zero, T, S)
 
         # MLP
         x_m = self.mlp(x_m)
 
         # modulate (MLP)
         x_m_s = gate_mlp * x_m
-        if x_mask is not None:
-            x_m_s_zero = gate_mlp_zero * x_m
-            x_m_s = t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
+        # frames mask branch
+        x_m_s_zero = gate_mlp_zero * x_m
+        x_m_s = t_mask_select(frames_mask, x_m_s, x_m_s_zero, T, S)
 
         # residual
         x = x + self.drop_path(x_m_s)
