@@ -182,6 +182,8 @@ class VideoDatasetRefactored(BaseDataset):
         if self._text_emb_folder:
             with np.load(data["text_emb"]) as td:
                 data.update({"caption": td["text_emb"], "mask": td["mask"]})
+        else:
+            raise NotImplementedError("`text_emb_folder` must be provided currently.")
 
         if self._vae_latent_folder:
             # pick a resolution randomly if there are multi-resolution latents in vae folder
