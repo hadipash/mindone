@@ -171,9 +171,9 @@ class VideoDatasetRefactored(BaseDataset):
                 return self._get_item(idx)
             except Exception as e:
                 error = e
-                _logger.debug(f"Failed to load a replacement sample: {e}")
+                _logger.debug(f"Failed to load a replacement sample: {repr(e)}")
 
-        raise RuntimeError(f"Fail to load a replacement sample in {attempts} attempts. Error: {error}")
+        raise RuntimeError(f"Fail to load a replacement sample in {attempts} attempts. Error: {repr(error)}")
 
     def _get_item(self, idx: int) -> Tuple[Any, ...]:
         data = self._data[idx].copy()
