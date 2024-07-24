@@ -254,6 +254,10 @@ def initialize_dataset(
         if args.pre_patchify:
             project_columns.extend(["spatial_pos", "spatial_mask", "temporal_pos", "temporal_mask"])
 
+        for dataset in datasets:
+            if len(dataset) < batch_size:
+                raise ValueError(f"Dataset size ({len(dataset)}) is smaller than the batch size ({len(batch_size)}).")
+
         dataloaders = [
             create_dataloader(
                 dataset,
