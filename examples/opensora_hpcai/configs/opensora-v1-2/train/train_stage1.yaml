@@ -34,13 +34,13 @@ warmup_steps: 500
 
 clip_grad: True
 max_grad_norm: 1.0
-use_ema: False
+use_ema: True
 
 optim: "adamw_re"
 optim_eps: 1e-15
 weight_decay: 0.
 
-epochs: 2
+epochs: 2000
 ckpt_save_interval: &save_interval 100
 
 mask_ratios:
@@ -63,8 +63,8 @@ bucket_config:
 
 # ---------- Validation ----------
 validate: True
-val_interval: 1
-num_eval_timesteps: 5
+val_interval: *save_interval
+num_eval_timesteps: 10
 
 val_csv_path:
 val_video_folder:
