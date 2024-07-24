@@ -56,8 +56,7 @@ class DiffusionWithLoss(nn.Cell):
         enable_frames_mask: bool = False,
     ):
         super().__init__()
-        # TODO: is set_grad() necessary?
-        self.network = network.set_grad()
+        self.network = network
         self.vae = vae
         self.diffusion = diffusion
         self.text_encoder = text_encoder
@@ -77,7 +76,6 @@ class DiffusionWithLoss(nn.Cell):
 
         if self.cond_stage_trainable and self.text_encoder:
             self.text_encoder.set_train(True)
-            self.text_encoder.set_grad(True)
 
     def get_condition_embeddings(self, text_tokens, **kwargs):
         # text conditions inputs for cross-attention
