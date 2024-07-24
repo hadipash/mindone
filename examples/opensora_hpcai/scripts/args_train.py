@@ -29,7 +29,7 @@ def parse_train_args(parser):
     parser.add_argument("--dataset_name", default="", type=str, help="dataset name")
     parser.add_argument(
         "--csv_path",
-        default="",
+        required=True,
         type=str,
         help="path to csv annotation file. columns: video, caption. \
         video indicates the relative path of video file in video_folder. caption - the text caption for video",
@@ -38,7 +38,7 @@ def parse_train_args(parser):
     parser.add_argument(
         "--caption_column", default="caption", type=str, help="name of column for captions saved in csv file"
     )
-    parser.add_argument("--video_folder", default="", type=str, help="root dir for the video data")
+    parser.add_argument("--video_folder", required=True, type=str, help="root dir for the video data")
     parser.add_argument("--text_embed_folder", type=str, help="root dir for the text embeding data")
     parser.add_argument("--vae_latent_folder", type=str, help="root dir for the vae latent data")
     parser.add_argument("--filter_data", default=False, type=str2bool, help="Filter non-existing videos.")

@@ -171,9 +171,9 @@ class VideoDatasetRefactored(BaseDataset):
                 return self._get_item(idx)
             except Exception as e:
                 error = e
-                _logger.debug(f"Failed to load a replacement sample: {e}")
+                _logger.debug(f"Failed to load a replacement sample: {repr(e)}")
 
-        raise RuntimeError(f"Fail to load a replacement sample in {attempts} attempts. Error: {error}")
+        raise RuntimeError(f"Fail to load a replacement sample in {attempts} attempts. Error: {repr(error)}")
 
     def _get_item(self, idx: int) -> Tuple[Any, ...]:
         data = self._data[idx].copy()
@@ -182,6 +182,8 @@ class VideoDatasetRefactored(BaseDataset):
         if self._text_emb_folder:
             with np.load(data["text_emb"]) as td:
                 data.update({"caption": td["text_emb"], "mask": td["mask"]})
+        else:
+            raise NotImplementedError("`text_emb_folder` must be provided currently.")
 
         if self._vae_latent_folder:
             # pick a resolution randomly if there are multi-resolution latents in vae folder
