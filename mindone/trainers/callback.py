@@ -252,7 +252,8 @@ class EvalSaveCallback(Callback):
             cb_params = run_context.original_args()
             metrics = cb_params.get("metrics")
             if metrics is not None:
-                _logger.info(f"Eval result epoch {cb_params.cur_epoch_num}: {metrics:.4f}")
+                metrics = {{k: f"{v:.4f}"} for k, v in metrics.items()}
+                _logger.info(f"Eval result epoch {cb_params.cur_epoch_num}: {metrics}")
 
     def _get_optimizer_from_cbp(self, cb_params):
         if cb_params.optimizer is not None:
