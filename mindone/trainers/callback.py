@@ -238,10 +238,6 @@ class EvalSaveCallback(Callback):
                 if self.ema is not None:
                     self.ema.swap_after_eval()
 
-            metrics = cb_params.get("metrics")
-            if metrics is not None:
-                _logger.info(f"Eval result epoch {cur_epoch}: {metrics}")
-
             self.last_epoch_end_time = time.time()
 
     def on_train_end(self, run_context):
@@ -250,6 +246,13 @@ class EvalSaveCallback(Callback):
                 log_str = f"Top K checkpoints:\n{self.main_indicator}\tcheckpoint\n"
                 for p, ckpt_name in self.ckpt_manager.get_ckpt_queue():
                     log_str += f"{p:.4f}\t{os.path.join(self.ckpt_save_dir, ckpt_name)}\n"
+
+    def on_eval_epoch_end(self, run_context):
+        if self.is_main_device:
+            cb_params = run_context.original_args()
+            metrics = cb_params.get("metrics")
+            if metrics is not None:
+                _logger.info(f"Eval result epoch {cb_params.cur_epoch_num}: {metrics:.4f}")
 
     def _get_optimizer_from_cbp(self, cb_params):
         if cb_params.optimizer is not None:
