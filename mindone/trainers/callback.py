@@ -247,7 +247,7 @@ class EvalSaveCallback(Callback):
                 for p, ckpt_name in self.ckpt_manager.get_ckpt_queue():
                     log_str += f"{p:.4f}\t{os.path.join(self.ckpt_save_dir, ckpt_name)}\n"
 
-    def on_eval_epoch_end(self, run_context):
+    def on_eval_end(self, run_context):
         if self.is_main_device:
             cb_params = run_context.original_args()
             metrics = cb_params.get("metrics")
