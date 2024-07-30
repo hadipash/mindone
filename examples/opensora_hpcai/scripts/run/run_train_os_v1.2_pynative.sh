@@ -12,7 +12,7 @@ output_dir=outputs/OSv1.2_pynative/$(date +"%Y.%m.%d-%H.%M.%S")
 msrun --bind_core=True --master_port=8200 --worker_num=8 --local_worker_num=8 --log_dir=$output_dir  \
 	python scripts/train.py \
 	--mode=1 \
-	--config configs/opensora-v1-2/train/train_stage1.yaml \
+	--config configs/opensora-v1-2/train/train_stage3.yaml \
 	--csv_path YOUR_CSV_PATH \
 	--video_folder YOUR_VIDEO_FOLDER \
 	--text_embed_folder YOUR_TEXT_EMBED_FOLDER \

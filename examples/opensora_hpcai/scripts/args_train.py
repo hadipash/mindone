@@ -44,7 +44,7 @@ def parse_train_args(parser):
     parser.add_argument("--filter_data", default=False, type=str2bool, help="Filter non-existing videos.")
     parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
     parser.add_argument(
-        "--add_datetime", default=True, type=str, help="If True, add datetime subfolder under output_path"
+        "--add_datetime", default=True, type=str2bool, help="If True, add datetime subfolder under output_path"
     )
     # model
     parser.add_argument(
@@ -59,6 +59,7 @@ def parse_train_args(parser):
     parser.add_argument("--space_scale", default=0.5, type=float, help="stdit model space scalec")
     parser.add_argument("--time_scale", default=1.0, type=float, help="stdit model time scalec")
     parser.add_argument("--model_max_length", type=int, default=120, help="T5's embedded sequence length.")
+    parser.add_argument("--freeze_y_embedder", type=str2bool, default=False, help="Do not train Caption Embedder.")
     parser.add_argument(
         "--patchify",
         type=str,

@@ -408,6 +408,7 @@ def main(args):
     elif args.model_version == "v1.2":
         model_name = "STDiT3"
         model_extra_args["qk_norm"] = True
+        model_extra_args["freeze_y_embedder"] = args.freeze_y_embedder
         latte_model = STDiT3_XL_2(**model_extra_args)
     else:
         raise ValueError(f"Unknown model version: {args.model_version}")

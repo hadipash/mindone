@@ -438,7 +438,7 @@ ASPECT_RATIOS = {
 
 
 def get_image_size(resolution, ar_ratio):
-    ar_key = ASPECT_RATIO_MAP[ar_ratio]
+    ar_key = ASPECT_RATIO_MAP[ar_ratio] if ar_ratio in ASPECT_RATIO_MAP else ar_ratio
     rs_dict = ASPECT_RATIOS[resolution][1]
     assert ar_key in rs_dict, f"Aspect ratio {ar_ratio} not found for resolution {resolution}"
     return rs_dict[ar_key]
