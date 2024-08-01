@@ -33,7 +33,7 @@ from opensora.pipelines import (
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.callback import PerfRecorder
-from opensora.utils.ema import EMA
+from opensora.utils.ema import EMA, EMAEvalSwapCallback
 from opensora.utils.metrics import Loss
 from opensora.utils.model_utils import WHITELIST_OPS, Model
 
@@ -652,10 +652,7 @@ def main(args):
         model = Model(net_with_grads, eval_network=latent_diffusion_eval, metrics=metrics)
 
     # callbacks
-    callback = [TimeMonitor(args.log_interval)]
-    ofm_cb = OverflowMonitor()
-    callback.append(ofm_cb)
-
+    callback = [TimeMonitor(args.log_interval), OverflowMonitor(), EMAEvalSwapCallback(ema)]
     if rank_id == 0:
         save_cb = EvalSaveCallback(
             network=latent_diffusion_with_loss.network,
