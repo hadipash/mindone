@@ -32,6 +32,7 @@ from opensora.pipelines import (
 )
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.amp import auto_mixed_precision
+from opensora.utils.callback import PerfRecorder
 from opensora.utils.ema import EMA
 from opensora.utils.metrics import Loss
 from opensora.utils.model_utils import WHITELIST_OPS, Model
@@ -445,7 +446,7 @@ def main(args):
     # 2.3 ldm with loss
     logger.info(f"Train with vae latent cache: {train_with_vae_latent}")
     diffusion = create_diffusion(timestep_respacing="")
-    latent_diffusion_eval, metrics = None, None
+    latent_diffusion_eval, metrics = None, {}
     pipeline_kwargs = dict(
         scale_factor=args.sd_scale_factor,
         cond_stage_trainable=False,
@@ -671,7 +672,10 @@ def main(args):
             model_name=model_name,
             record_lr=False,
         )
-        callback.append(save_cb)
+        perf_rec = PerfRecorder(
+            save_dir=args.output_path, file_name="result_val.log", metric_names=list(metrics.keys()), resume=args.resume
+        )
+        callback.extend([save_cb, perf_rec])
         if args.profile:
             callback.append(ProfilerCallbackEpoch(2, 3, "./profile_data"))
 
