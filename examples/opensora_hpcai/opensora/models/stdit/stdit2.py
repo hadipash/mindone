@@ -278,7 +278,7 @@ class STDiT2(nn.Cell):
                     enable_flashattn=enable_flashattn,
                     enable_layernorm_kernel=enable_layernorm_kernel,
                     enable_sequence_parallelism=enable_sequence_parallelism,
-                    rope=self.rope.rotate_queries_or_keys,
+                    rope=self.rope,
                     qk_norm=qk_norm,
                 )
                 for i in range(self.depth)

@@ -255,7 +255,7 @@ class STDiT3(nn.Cell):
                     enable_sequence_parallelism=enable_sequence_parallelism,
                     # temporal
                     temporal=True,
-                    rope=self.rope.rotate_queries_or_keys,
+                    rope=self.rope,
                 )
                 for i in range(depth)
             ]
