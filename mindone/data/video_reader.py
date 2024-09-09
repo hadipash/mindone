@@ -1,8 +1,29 @@
+from abc import ABC, abstractmethod
+
+import av
 import cv2
 import numpy as np
 
 
-class OpenCVVideoReader:
+class _VideoReader(ABC):
+    @abstractmethod
+    def __enter__(self) -> "_VideoReader":
+        ...
+
+    @abstractmethod
+    def __exit__(self, *args):
+        ...
+
+    @abstractmethod
+    def __len__(self) -> int:
+        ...
+
+    @abstractmethod
+    def get_frames(self, num: int = 0, start_pos: int = 0, step: int = 1) -> np.ndarray:
+        ...
+
+
+class OpenCVVideoReader(_VideoReader):
     """
     Extracts information about a video and reads frames in batches using OpenCV.
     Must be used with a context manager.
@@ -22,7 +43,7 @@ class OpenCVVideoReader:
         ...     width, height = reader.shape
         ...     fps = reader.fps
         ...     total_frames = len(reader)
-        ...     frames = reader.fetch_frames(num=10, start_pos=10, step=2)
+        ...     frames = reader.get_frames(num=10, start_pos=10, step=2)
     """
 
     def __init__(self, video_path: str):
@@ -45,7 +66,7 @@ class OpenCVVideoReader:
     def __len__(self) -> int:
         return int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    def fetch_frames(self, num: int = 0, start_pos: int = 0, step: int = 1) -> np.ndarray:
+    def get_frames(self, num: int = 0, start_pos: int = 0, step: int = 1) -> np.ndarray:
         """
         Fetches a sequence of frames from the video starting at a specified position with a specified step.
 
@@ -79,6 +100,40 @@ class OpenCVVideoReader:
                 i += step
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, i)
             ret, frame = self._cap.read()
+
+        if len(frames) != num:
+            raise RuntimeError(f"Failed to read {num} frames from {self._video_path}.")
+
+        return np.stack(frames)
+
+
+class PyAVVideoReader(_VideoReader):
+    def __init__(self, video_path: str):
+        self._video_path = video_path
+
+    def __enter__(self) -> "PyAVVideoReader":
+        self._container = av.open(self._video_path, metadata_errors="ignore")
+        self._stream = self._container.streams.video[0]
+        self.shape = self._stream.width, self._stream.height
+        self.fps = float(self._stream.average_rate)
+        return self
+
+    def __exit__(self, *args):
+        self._container.close()
+
+    def __len__(self) -> int:
+        return self._stream.frames
+
+    def get_frames(self, num: int = 0, start_pos: int = 0, step: int = 1) -> np.ndarray:
+        start_offset = int(num / self._stream.average_rate / self._stream.time_base)
+        self._container.seek(start_offset, backward=True, any_frame=True)
+
+        frames = []
+        for i, frame in enumerate(self._container.decode(video=0)):
+            if len(frames) == num:
+                break
+            elif not i % step:  # TODO: is there a more efficient way to do read batch of frames?
+                frames.append(frame.to_rgb().to_ndarray())
 
         if len(frames) != num:
             raise RuntimeError(f"Failed to read {num} frames from {self._video_path}.")

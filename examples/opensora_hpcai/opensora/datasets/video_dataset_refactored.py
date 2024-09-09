@@ -307,7 +307,7 @@ class VideoDatasetRefactored(BaseDataset):
                     if len(reader) < min_length:
                         raise ValueError(f"Video is too short: {video_path}")
                     start_pos = random.randint(0, len(reader) - min_length)
-                    video = reader.fetch_frames(num=num_frames, start_pos=start_pos, step=self._stride)
+                    video = reader.get_frames(num=num_frames, start_pos=start_pos, step=self._stride)
                     data["fps"] = np.array(reader.fps, dtype=np.float32)
             else:
                 # TODO: add pyav backend and test
