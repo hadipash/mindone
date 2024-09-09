@@ -6,7 +6,7 @@ import random
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Literal, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -17,7 +17,7 @@ import mindspore as ms
 from mindspore.dataset.transforms import Compose
 from mindspore.dataset.vision import CenterCrop, Inter, Normalize
 
-from mindone.data.video_reader import OpenCVVideoReader
+from mindone.data.video_reader import OpenCVVideoReader, PyAVVideoReader
 
 from .bucket import Bucket
 from .transforms import BucketResizeAndCrop, BucketResizeCrop, Resize, ResizeAndCrop
@@ -83,7 +83,7 @@ class VideoDatasetRefactored(BaseDataset):
         apply_train_transforms: bool = False,
         target_size: Optional[Tuple[int]] = None,
         tokenizer=None,
-        video_backend: str = "cv2",
+        video_backend: Literal["cv2", "pyav", "decord"] = "cv2",
         *,
         output_columns: List[str],
     ):
@@ -286,8 +286,9 @@ class VideoDatasetRefactored(BaseDataset):
                     reader.get_avg_fps(), dtype=np.float32
                 )  # / self._stride  # FIXME: OS v1.1 incorrect
                 del reader
-            elif self.video_backend == "cv2":
-                with OpenCVVideoReader(video_path) as reader:
+            else:
+                _VideoReader = OpenCVVideoReader if self.video_backend == "cv2" else PyAVVideoReader
+                with _VideoReader(video_path) as reader:
                     min_length = self._min_length
                     if self._buckets:
                         data["bucket_id"] = self._buckets.get_bucket_id(
@@ -309,9 +310,6 @@ class VideoDatasetRefactored(BaseDataset):
                     start_pos = random.randint(0, len(reader) - min_length)
                     video = reader.get_frames(num=num_frames, start_pos=start_pos, step=self._stride)
                     data["fps"] = np.array(reader.fps, dtype=np.float32)
-            else:
-                # TODO: add pyav backend and test
-                raise NotImplementedError
 
         data["num_frames"] = np.array(num_frames, dtype=np.float32)
 

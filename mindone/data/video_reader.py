@@ -132,7 +132,7 @@ class PyAVVideoReader(_VideoReader):
         for i, frame in enumerate(self._container.decode(video=0)):
             if len(frames) == num:
                 break
-            elif not i % step:  # TODO: is there a more efficient way to do read batch of frames?
+            elif not i % step:  # TODO: is there a more efficient way to read batch of frames?
                 frames.append(frame.to_rgb().to_ndarray())
 
         if len(frames) != num:
