@@ -10,7 +10,7 @@ from mindspore.dataset.vision import CenterCrop, Resize
 
 sys.path.append("../../")  # FIXME: remove in future when mindone is ready for install
 from mindone.data import BaseDataset
-from mindone.data.video_reader import VideoReader
+from mindone.data.video_reader import OpenCVVideoReader
 
 _logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class VideoDataset(BaseDataset):
 
     def __getitem__(self, idx: int) -> Tuple[Any, ...]:
         data = self._data[idx].copy()
-        with VideoReader(data["path"]) as reader:
+        with OpenCVVideoReader(data["path"]) as reader:
             start_pos = random.randint(0, len(reader) - self._frames * self._step)
             data["frames"] = reader.fetch_frames(num=self._frames, start_pos=start_pos, step=self._step)
             data.update({"fps": reader.fps / self._step, "width": reader.shape[0], "height": reader.shape[1]})

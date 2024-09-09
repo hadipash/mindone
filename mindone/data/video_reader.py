@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 
-class VideoReader:
+class OpenCVVideoReader:
     """
     Extracts information about a video and reads frames in batches using OpenCV.
     Must be used with a context manager.
@@ -18,7 +18,7 @@ class VideoReader:
         IOError: If the video cannot be opened.
 
     Examples:
-        >>> with VideoReader("video.mp4") as reader:
+        >>> with OpenCVVideoReader("video.mp4") as reader:
         ...     width, height = reader.shape
         ...     fps = reader.fps
         ...     total_frames = len(reader)
@@ -31,7 +31,7 @@ class VideoReader:
         self.shape = (0, 0)
         self.fps = 0
 
-    def __enter__(self) -> "VideoReader":
+    def __enter__(self) -> "OpenCVVideoReader":
         self._cap = cv2.VideoCapture(self._video_path, apiPreference=cv2.CAP_FFMPEG)
         if not self._cap.isOpened():
             raise IOError(f"Video {self._video_path} cannot be opened.")

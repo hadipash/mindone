@@ -9,7 +9,7 @@ from PIL import Image
 
 from mindspore.dataset.vision import Inter
 
-from mindone.data.video_reader import VideoReader
+from mindone.data.video_reader import OpenCVVideoReader
 
 from ..datasets.video_dataset_refactored import create_infer_transforms
 
@@ -93,7 +93,7 @@ def get_references(
             for ref in paths.split(";"):  # iterate over references for each loop
                 ext = os.path.splitext(ref)[-1].lower()
                 if ext.lower() in VID_EXTENSIONS:
-                    with VideoReader(ref) as reader:
+                    with OpenCVVideoReader(ref) as reader:
                         frames = reader.fetch_frames(num=len(reader))
                     frames = get_references.vid_transforms(frames)
                 else:

@@ -17,7 +17,7 @@ import mindspore as ms
 from mindspore.dataset.transforms import Compose
 from mindspore.dataset.vision import CenterCrop, Inter, Normalize
 
-from mindone.data.video_reader import VideoReader as VideoReader_CV2
+from mindone.data.video_reader import OpenCVVideoReader
 
 from .bucket import Bucket
 from .transforms import BucketResizeAndCrop, BucketResizeCrop, Resize, ResizeAndCrop
@@ -287,7 +287,7 @@ class VideoDatasetRefactored(BaseDataset):
                 )  # / self._stride  # FIXME: OS v1.1 incorrect
                 del reader
             elif self.video_backend == "cv2":
-                with VideoReader_CV2(video_path) as reader:
+                with OpenCVVideoReader(video_path) as reader:
                     min_length = self._min_length
                     if self._buckets:
                         data["bucket_id"] = self._buckets.get_bucket_id(
