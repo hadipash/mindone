@@ -8,9 +8,16 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Optional, Set
 
+import requests
 import torch
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi, configure_http_backend, hf_hub_download
 from safetensors.torch import _find_shared_tensors, _is_complete, load_file, save_file
+
+
+def backend_factory() -> requests.Session:
+    session = requests.Session()
+    session.verify = False
+    return session
 
 
 def _remove_duplicate_names(
@@ -300,8 +307,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Force weights re-conversion.",
     )
+    parser.add_argument(
+        "--disable_ssl_verify",
+        action="store_true",
+        help="Disable SSL verification when downloading the model weights.",
+    )
 
     args = parser.parse_args()
+    if args.disable_ssl_verify:
+        configure_http_backend(backend_factory=backend_factory)
+
     path = convert(
         args.model_id, revision=args.revision, folder=args.output_dir, force=args.force, endpoint=args.endpoint
     )
