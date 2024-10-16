@@ -28,9 +28,6 @@ def test_forward_fp32(x, y):
         ms.Tensor(x + num_special_tokens, dtype=ms.int32), labels=ms.Tensor(y + num_special_tokens, dtype=ms.int32)
     ).loss
     ms_loss = ms_loss.asnumpy().astype(np.float32)
-    pt_loss = byt5_pt(
-        input_ids=torch.tensor(x + num_special_tokens, dtype=torch.int32),
-        labels=torch.tensor(y + num_special_tokens, dtype=torch.int32),
-    ).loss
-    pt_loss = pt_loss.numpy().astype(np.float32)
+    pt_loss = byt5_pt(torch.tensor(x + num_special_tokens), labels=torch.tensor(y + num_special_tokens)).loss
+    pt_loss = pt_loss.detach().numpy().astype(np.float32)
     assert np.allclose(ms_loss, pt_loss, atol=fp32_fwd_tolerance, rtol=0)
