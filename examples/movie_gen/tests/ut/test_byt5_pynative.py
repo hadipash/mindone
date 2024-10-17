@@ -1,33 +1,35 @@
 import numpy as np
-import pytest
 import torch
-from moviegen.text_encoders.byt5 import ByT5
-from transformers import T5ForConditionalGeneration
+from transformers import AutoTokenizer
+from transformers import T5EncoderModel as T5EncoderModel_PyTorch
 
 import mindspore as ms
 
-ms.set_context(mode=ms.PYNATIVE_MODE, deterministic="ON", ascend_config={"precision_mode": "must_keep_origin_dtype"})
+from mindone.transformers import T5EncoderModel
+
+ms.set_context(mode=ms.PYNATIVE_MODE)
 
 fp32_fwd_tolerance = 1e-5
 
 test_samples = [
-    (
-        np.array([list("Life is like a box of chocolates.".encode("utf-8"))]),
-        np.array([list("La vie est comme une boîte de chocolat.".encode("utf-8"))]),
-    )
+    "Life is like a box of chocolates.",
+    "La vie est comme une boîte de chocolat.",
+    "Today is Monday.",
+    "Aujourd'hui c'est lundi.",
 ]
 
-byt5_ms = ByT5("google/byt5-small")
-byt5_pt = T5ForConditionalGeneration.from_pretrained("google/byt5-small", local_files_only=True)
+tokenizer = AutoTokenizer.from_pretrained("google/byt5-small")
+test_samples = tokenizer(test_samples, padding="longest", return_tensors="np")
+
+byt5_ms = T5EncoderModel.from_pretrained("google/byt5-small", local_files_only=True)
+byt5_pt = T5EncoderModel_PyTorch.from_pretrained("google/byt5-small", local_files_only=True)
 
 
-@pytest.mark.parametrize("x, y", test_samples)
-def test_forward_fp32(x, y):
-    num_special_tokens = 3
-    ms_loss = byt5_ms(
-        ms.Tensor(x + num_special_tokens, dtype=ms.int32), labels=ms.Tensor(y + num_special_tokens, dtype=ms.int32)
-    ).loss
-    ms_loss = ms_loss.asnumpy().astype(np.float32)
-    pt_loss = byt5_pt(torch.tensor(x + num_special_tokens), labels=torch.tensor(y + num_special_tokens)).loss
-    pt_loss = pt_loss.detach().numpy().astype(np.float32)
-    assert np.allclose(ms_loss, pt_loss, atol=fp32_fwd_tolerance, rtol=0)
+def test_forward_fp32():
+    ms_enc = byt5_ms(
+        ms.Tensor(test_samples.input_ids, dtype=ms.int32), ms.Tensor(test_samples.attention_mask, dtype=ms.uint8)
+    )
+    ms_enc = ms_enc[0].asnumpy().astype(np.float32)
+    pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
+    pt_enc = pt_enc[0].detach().numpy().astype(np.float32)
+    assert np.allclose(ms_enc, pt_enc, atol=fp32_fwd_tolerance, rtol=0)
