@@ -2,6 +2,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 import torch
 from transformers import AutoTokenizer
 from transformers import T5EncoderModel as T5EncoderModel_PyTorch
@@ -10,11 +11,13 @@ import mindspore as ms
 
 # FIXME: remove in future when mindone is ready for install
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
-from mindone.transformers import T5EncoderModel
+from mindone.transformers.models.t5.modeling_t5 import T5EncoderModel, T5LayerNorm
 
 ms.set_context(mode=ms.PYNATIVE_MODE)
 
 fp32_tolerance = 1e-4
+fp16_tolerance = 2e-2
+bf16_tolerance = 2e-1
 
 test_samples = [
     "Life is like a box of chocolates.",
@@ -26,15 +29,59 @@ test_samples = [
 tokenizer = AutoTokenizer.from_pretrained("google/byt5-small", local_files_only=True)
 test_samples = tokenizer(test_samples, padding="longest", return_tensors="np")
 
-byt5_ms = T5EncoderModel.from_pretrained("google/byt5-small", local_files_only=True)
-byt5_pt = T5EncoderModel_PyTorch.from_pretrained("google/byt5-small", local_files_only=True)
+
+# PyTorch model can be initialized once only
+@pytest.fixture(scope="module")
+def byt5_pt():
+    return T5EncoderModel_PyTorch.from_pretrained("google/byt5-small", local_files_only=True)
 
 
-def test_fp32():
+# MindSpore model need to reinitialize each test
+@pytest.fixture(scope="function")
+def byt5_ms():
+    return T5EncoderModel.from_pretrained("google/byt5-small", local_files_only=True)
+
+
+def test_fp32(byt5_ms, byt5_pt):
+    # set models precision
+    byt5_pt.to(torch.float32)
+
     ms_enc = byt5_ms(
         ms.Tensor(test_samples.input_ids, dtype=ms.int32), ms.Tensor(test_samples.attention_mask, dtype=ms.uint8)
     )
     ms_enc = ms_enc[0].asnumpy().astype(np.float32)
     pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
     pt_enc = pt_enc[0].detach().numpy().astype(np.float32)
+    assert np.allclose(ms_enc, pt_enc, atol=fp32_tolerance, rtol=0)
+
+
+def test_fp16(byt5_ms, byt5_pt):
+    # set models precision
+    byt5_ms = ms.amp.custom_mixed_precision(
+        byt5_ms, black_list=ms.amp.get_black_list() + [T5LayerNorm], dtype=ms.float16
+    )
+    byt5_pt.to(torch.float16)
+
+    ms_enc = byt5_ms(
+        ms.Tensor(test_samples.input_ids, dtype=ms.int32), ms.Tensor(test_samples.attention_mask, dtype=ms.uint8)
+    )
+    ms_enc = ms_enc[0].asnumpy().astype(np.float32)
+    pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
+    pt_enc = pt_enc[0].detach().numpy().astype(np.float32)
+    assert np.allclose(ms_enc, pt_enc, atol=fp32_tolerance, rtol=0)
+
+
+def test_bf16(byt5_ms, byt5_pt):
+    # set models precision
+    byt5_ms = ms.amp.custom_mixed_precision(
+        byt5_ms, black_list=ms.amp.get_black_list() + [T5LayerNorm], dtype=ms.bfloat16
+    )
+    byt5_pt.to(torch.bfloat16)
+
+    ms_enc = byt5_ms(
+        ms.Tensor(test_samples.input_ids, dtype=ms.int32), ms.Tensor(test_samples.attention_mask, dtype=ms.uint8)
+    )
+    ms_enc = ms_enc[0].astype(ms.float32).asnumpy()
+    pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
+    pt_enc = pt_enc[0].detach().to(torch.float32).numpy()
     assert np.allclose(ms_enc, pt_enc, atol=fp32_tolerance, rtol=0)
