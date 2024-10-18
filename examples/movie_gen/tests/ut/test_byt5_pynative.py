@@ -68,7 +68,7 @@ def test_fp16(byt5_ms, byt5_pt):
     ms_enc = ms_enc[0].asnumpy().astype(np.float32)
     pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
     pt_enc = pt_enc[0].detach().numpy().astype(np.float32)
-    assert np.allclose(ms_enc, pt_enc, atol=fp32_tolerance, rtol=0)
+    assert np.allclose(ms_enc, pt_enc, atol=fp16_tolerance, rtol=0)
 
 
 def test_bf16(byt5_ms, byt5_pt):
@@ -84,4 +84,4 @@ def test_bf16(byt5_ms, byt5_pt):
     ms_enc = ms_enc[0].astype(ms.float32).asnumpy()
     pt_enc = byt5_pt(torch.tensor(test_samples.input_ids), torch.tensor(test_samples.attention_mask), return_dict=False)
     pt_enc = pt_enc[0].detach().to(torch.float32).numpy()
-    assert np.allclose(ms_enc, pt_enc, atol=fp32_tolerance, rtol=0)
+    assert np.allclose(ms_enc, pt_enc, atol=bf16_tolerance, rtol=0)
