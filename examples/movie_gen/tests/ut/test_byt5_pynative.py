@@ -30,13 +30,11 @@ tokenizer = AutoTokenizer.from_pretrained("google/byt5-small", local_files_only=
 test_samples = tokenizer(test_samples, padding="longest", return_tensors="np")
 
 
-# PyTorch model can be initialized once only
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def byt5_pt():
     return T5EncoderModel_PyTorch.from_pretrained("google/byt5-small", local_files_only=True)
 
 
-# MindSpore model need to reinitialize each test
 @pytest.fixture(scope="function")
 def byt5_ms():
     return T5EncoderModel.from_pretrained("google/byt5-small", local_files_only=True)
