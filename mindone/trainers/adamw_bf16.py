@@ -21,7 +21,7 @@ def _check_param_value(beta1, beta2, eps, prim_name, parameters):
     assert isinstance(beta2, float) and 0 <= beta2 <= 1.0, f"For {prim_name}, beta2 should between 0 and 1"
     assert isinstance(eps, float) and eps > 0, f"For {prim_name}, eps should be bigger than 0"
     for x in parameters:
-        assert x.dtype == ms.bfloat16, f"model paramters should be bfloat16, but get `{x.dtype}`."
+        assert x.dtype == ms.bfloat16, f"model parameter {x.name} should be `bfloat16`, but got `{x.dtype}`."
 
 
 _grad_scale = ops.MultitypeFuncGraph("grad_scale")
@@ -155,8 +155,12 @@ class AdamW_BF16(Optimizer):
         self.beta1 = Tensor(np.array([beta1]).astype(np.float32))
         self.beta2 = Tensor(np.array([beta2]).astype(np.float32))
         self.eps = Tensor(np.array([eps]).astype(np.float32))
-        self.moments1 = self.parameters.clone(prefix="adam_m", init="zeros")
-        self.moments2 = self.parameters.clone(prefix="adam_v", init="zeros")
+        self.moments1 = ms.ParameterTuple(
+            [Parameter(ms.mint.zeros(x.shape, dtype=x.dtype), name="adam_m." + x.name) for x in self.parameters]
+        )
+        self.moments2 = ms.ParameterTuple(
+            [Parameter(ms.mint.zeros(x.shape, dtype=x.dtype), name="adam_v." + x.name) for x in self.parameters]
+        )
         self.hyper_map = ops.HyperMap()
         self.beta1_power = Parameter(initializer(1, [1], ms.float32), name="beta1_power")
         self.beta2_power = Parameter(initializer(1, [1], ms.float32), name="beta2_power")
