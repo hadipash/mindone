@@ -260,7 +260,7 @@ class EvalSaveCallback(Callback):
         opt = self._get_optimizer_from_cbp(cb_params)
         cur_step = int(opt.global_step.asnumpy().item())
 
-        if self.is_main_device and (not self.step_mode):
+        if self.is_main_device and not self.step_mode:
             if (cur_epoch % self.ckpt_save_interval == 0) or (cur_epoch == epoch_num):
                 ckpt_name = (
                     f"{self.model_name}-s{cur_step}.ckpt"
@@ -305,9 +305,12 @@ class EvalSaveCallback(Callback):
     def on_train_end(self, run_context):
         if self.is_main_device:
             if self.ckpt_save_policy == "top_k":
-                log_str = f"Top K checkpoints: \n{self.main_indicator}\tcheckpoint\n"
-                for p, ckpt_name in self.ckpt_manager.get_ckpt_queue():
-                    log_str += f"{p: .4f}\t{os.path.join(self.ckpt_save_dir, ckpt_name)}\n"
+                log_str = f"Top K checkpoints:\n{self.monitor_metric}\tcheckpoint\n"
+                log_str += "\n".join(
+                    f"{metric:<{len(self.monitor_metric)}.6f}\t{os.path.join(self.ckpt_save_dir, ckpt_name)}"
+                    for metric, ckpt_name in self.ckpt_manager.get_ckpt_queue()
+                )
+                _logger.info(log_str)
 
     def on_eval_end(self, run_context):
         if self.is_main_device:
