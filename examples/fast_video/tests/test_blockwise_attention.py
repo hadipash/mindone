@@ -1,43 +1,12 @@
-from typing import Optional
-
 import numpy as np
 import pytest
-from src.sparsification.block_sparse_attention import BlockSparseAttention
+from src.sparsification import BlockSparseAttention
 
 from mindspore import Tensor
 from mindspore import dtype as mstype
-from mindspore import mint, nn
-from mindspore import numpy as msnumpy
-from mindspore import ops, tensor
+from mindspore import tensor
 
-BLOCK_SIZE = 128
-
-DTYPES = {"fp32": mstype.float32, "fp16": mstype.float16, "bf16": mstype.bfloat16}
-
-TOLERANCES = {
-    "fp32": {"rtol": 1.3e-6, "atol": 1e-5},
-    "fp16": {"rtol": 1e-3, "atol": 1e-3},
-    "bf16": {"rtol": 1.6e-2, "atol": 1e-2},
-}
-
-
-class VanillaAttention(nn.Cell):
-    def __init__(self, dim_head: int) -> None:
-        super().__init__()
-        self._scale = dim_head**-0.5
-        self._bmm = ops.BatchMatMul(transpose_b=True)
-
-    def construct(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
-        sim = self._bmm(q, k) * self._scale
-
-        if mask is not None:
-            sim = ops.masked_fill(sim, ~mask, -msnumpy.inf)
-
-        # use fp32 for exponential inside
-        attn = mint.softmax(sim.astype(mstype.float32), dim=-1).astype(v.dtype)
-        attn = mint.nan_to_num(attn, nan=0)
-        out = mint.matmul(attn, v)
-        return out
+from .utils import BLOCK_SIZE, DTYPES, TOLERANCES, Attention
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +52,7 @@ def vanilla_attention(
 ) -> dict[str, dict[str, np.ndarray]]:
     def _attn(mask: Tensor, dtype: mstype) -> np.ndarray:
         q, k, v = q_k_v
-        attn = VanillaAttention(q.shape[-1]).set_train(False).to_float(dtype)
+        attn = Attention(q.shape[-1]).set_train(False).to_float(dtype)
         return attn(q.to(dtype), k.to(dtype), v.to(dtype), mask).asnumpy().astype(np.float32)
 
     return {
