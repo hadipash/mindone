@@ -356,7 +356,7 @@ def add_inference_args(parser: argparse.ArgumentParser):
     )
 
     group.add_argument("--use-fp8", action="store_true", help="Enable use fp8 for inference acceleration.")
-    group.add_argument("--attn-mode", type=str, default="flash", help="vanilla or flash")
+    group.add_argument("--attn-mode", type=str, default="flash", help="vanilla, flash, or draft")
     group.add_argument(
         "--use-conv2d-patchify",
         type=str2bool,

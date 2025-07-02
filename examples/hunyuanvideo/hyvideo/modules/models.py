@@ -1,7 +1,7 @@
 # Adapted from https://github.com/Tencent-Hunyuan/HunyuanVideo to work with MindSpore.
 import logging
 import os
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 import numpy as np
 
@@ -19,7 +19,7 @@ from ..acceleration import (
     init_alltoall,
 )
 from .activation_layers import get_activation_layer
-from .attention import FlashAttentionVarLen, VanillaAttention  # , parallel_attention, get_cu_seqlens
+from .attention import DraftAttention, FlashAttentionVarLen, VanillaAttention  # , parallel_attention, get_cu_seqlens
 from .embed_layers import PatchEmbed, TextProjection, TimestepEmbedder
 from .mlp_layers import MLP, FinalLayer, MLPEmbedder
 from .modulate_layers import ModulateDiT, apply_gate, modulate
@@ -46,7 +46,7 @@ class MMDoubleStreamBlock(nn.Cell):
         qk_norm: bool = True,
         qk_norm_type: str = "rms",
         qkv_bias: bool = False,
-        attn_mode: str = "flash",
+        attn_mode: Literal["vanilla", "flash", "draft"] = "flash",
         dtype=None,
     ):
         factory_kwargs = {"dtype": dtype}
@@ -135,6 +135,9 @@ class MMDoubleStreamBlock(nn.Cell):
             self.compute_attention = VanillaAttention(head_dim)
         elif attn_mode == "flash":
             self.compute_attention = FlashAttentionVarLen(heads_num, head_dim)
+        elif attn_mode == "draft":
+            # TODO: switch to `block` attention when available
+            self.compute_attention = DraftAttention(head_dim, block_size=128, text_len=256, attn_type="flash")
         else:
             raise NotImplementedError
 
@@ -154,6 +157,8 @@ class MMDoubleStreamBlock(nn.Cell):
         freqs_cos: ms.Tensor = None,
         freqs_sin: ms.Tensor = None,
         attn_mask: ms.Tensor = None,
+        early_diffusion: bool = False,
+        i_block: int = 0,
     ):
         """
         img: (B S_v HD), HD - hidden_size = (num_heads * head_dim)
@@ -251,6 +256,7 @@ class MMDoubleStreamBlock(nn.Cell):
             v,
             actual_seq_qlen=actual_seq_qlen,
             actual_seq_kvlen=actual_seq_kvlen,
+            force_dense_attn=early_diffusion or i_block < 2,  # sparse attention
         )
 
         # attention computation end
@@ -296,7 +302,7 @@ class MMSingleStreamBlock(nn.Cell):
         qk_norm: bool = True,
         qk_norm_type: str = "rms",
         qk_scale: float = None,
-        attn_mode: str = "flash",
+        attn_mode: Literal["vanilla", "flash", "draft"] = "flash",
         dtype=None,
     ):
         factory_kwargs = {"dtype": dtype}
@@ -360,6 +366,9 @@ class MMSingleStreamBlock(nn.Cell):
             self.compute_attention = VanillaAttention(head_dim)
         elif attn_mode == "flash":
             self.compute_attention = FlashAttentionVarLen(heads_num, head_dim)
+        elif attn_mode == "draft":
+            # TODO: switch to `block` attention when available
+            self.compute_attention = DraftAttention(head_dim, block_size=128, text_len=256, attn_type="flash")
         else:
             raise NotImplementedError
 
@@ -379,6 +388,7 @@ class MMSingleStreamBlock(nn.Cell):
         freqs_cos: ms.Tensor = None,
         freqs_sin: ms.Tensor = None,
         attn_mask: ms.Tensor = None,
+        early_diffusion: bool = False,
     ) -> ms.Tensor:
         """
         attn_mask: (B 1 S_v+S_t S_v+S_t)
@@ -427,6 +437,7 @@ class MMSingleStreamBlock(nn.Cell):
             v,
             actual_seq_qlen=actual_seq_qlen,
             actual_seq_kvlen=actual_seq_kvlen,
+            force_dense_attn=early_diffusion,  # sparse attention
         )
         if self.sp_group_size is not None:
             txt_len = txt_len * self.sp_group_size
@@ -763,6 +774,7 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         freqs_cos: Optional[ms.Tensor] = None,
         freqs_sin: Optional[ms.Tensor] = None,
         guidance: ms.Tensor = None,  # Guidance for modulation, should be cfg_scale x 1000.
+        early_diffusion: bool = False,
         # actual_seq_len = None,
     ) -> ms.Tensor:
         """
@@ -855,7 +867,7 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         else:
             if self._teacache:
                 ori_img = img.clone()
-            for _, block in enumerate(self.double_blocks):
+            for i_block, block in enumerate(self.double_blocks):
                 # AMP: img bf16, txt bf16, vec bf16, freqs fp32
                 img, txt = block(
                     img,
@@ -865,6 +877,8 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
                     freqs_sin=freqs_sin,
                     actual_seq_qlen=actual_seq_len,
                     actual_seq_kvlen=actual_seq_len,
+                    early_diffusion=early_diffusion,
+                    i_block=i_block,
                     # attn_mask=mask,
                 )
 
@@ -881,6 +895,7 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
                         freqs_sin=freqs_sin,
                         actual_seq_qlen=actual_seq_len,
                         actual_seq_kvlen=actual_seq_len,
+                        early_diffusion=early_diffusion,
                         # attn_mask=mask,
                     )
             # sequence parallel end

@@ -1,9 +1,17 @@
 # Adapted from https://github.com/Tencent-Hunyuan/HunyuanVideo to work with MindSpore.
 import math
+import os
+import sys
 
 import mindspore as ms
 from mindspore import nn, ops
 from mindspore.ops.operations.nn_ops import FlashAttentionScore
+
+fast_video_path = os.path.join(os.path.dirname(__file__), "../../../fast_video")
+sys.path.append(fast_video_path)
+from src.sparsification.draft_attention import DraftAttention
+
+__all__ = ["VanillaAttention", "FlashAttention", "FlashAttentionVarLen", "DraftAttention"]
 
 
 class VanillaAttention(nn.Cell):
@@ -12,7 +20,7 @@ class VanillaAttention(nn.Cell):
         self.scale_factor = 1 / math.sqrt(head_dim)
         self.dropout = dropout
 
-    def construct(self, q, k, v, mask=None, actual_seq_qlen=None, actual_seq_kvlen=None):
+    def construct(self, q, k, v, mask=None, actual_seq_qlen=None, actual_seq_kvlen=None, **kwargs):
         """
         q/k/v: (B S N D)
         mask: (B 1 S S),  1 - for retain, 0 - for drop. e.g. [[1, 1, 0, 0 ..], [1, 1, 0, 0 ..]]
@@ -62,7 +70,7 @@ class FlashAttention(nn.Cell):
         if ms.get_context("mode") == ms.GRAPH_MODE:
             self.flash_attention.recompute(False)
 
-    def construct(self, q, k, v, mask=None, actual_seq_qlen=None, actual_seq_kvlen=None):
+    def construct(self, q, k, v, mask=None, actual_seq_qlen=None, actual_seq_kvlen=None, **kwargs):
         """
         input:
             q/k/v: (B S N D)
@@ -107,7 +115,7 @@ class FlashAttentionVarLen(nn.Cell):
         if ms.get_context("mode") == ms.GRAPH_MODE:
             self.flash_attention.recompute(False)
 
-    def construct(self, q, k, v, actual_seq_qlen=None, actual_seq_kvlen=None):
+    def construct(self, q, k, v, actual_seq_qlen=None, actual_seq_kvlen=None, **kwargs):
         """
         this is an equivalent impl. to flash_attn_varlen_func in torch.
         based on npu FA api https://www.hiascend.com/document/detail/zh/Pytorch/600/ptmoddevg/trainingmigrguide/performance_tuning_0027.html

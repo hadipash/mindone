@@ -946,6 +946,11 @@ class HunyuanVideoPipeline(DiffusionPipeline):
                     freqs_cos=freqs_cis[0],  # [seqlen, head_dim]
                     freqs_sin=freqs_cis[1],  # [seqlen, head_dim]
                     guidance=guidance_expand,
+                    # early_diffusion=True if i < int((num_inference_steps+4) / 4) else False,
+                    # Xuan: first 25% steps are dense, trick got from page 7 of "sparse videogen paper"
+                    early_diffusion=True if t > 945 else False,
+                    # Xuan: trick got from mit-han-lab:
+                    # https://github.com/svg-project/Sparse-VideoGen/blob/079364dc2e4ca6cd0c26c8c45eafeb9fbf51ef8e/svg/models/hyvideo/modules/attenion.py#L235
                 )
                 # print("D--: noise pred step done", i, t, noise_pred.shape)
                 # perform guidance
