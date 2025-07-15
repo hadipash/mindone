@@ -7,8 +7,8 @@ import mindspore as ms
 from mindspore import nn, ops
 from mindspore.ops.operations.nn_ops import FlashAttentionScore
 
-fast_video_path = os.path.join(os.path.dirname(__file__), "../../../fast_video")
-sys.path.append(fast_video_path)
+fastvideo_path = os.path.join(os.path.dirname(__file__), "../../../fastvideo")
+sys.path.append(fastvideo_path)
 from src.sparsification.draft_attention import DraftAttention
 
 __all__ = ["VanillaAttention", "FlashAttention", "FlashAttentionVarLen", "DraftAttention"]
