@@ -2,13 +2,12 @@ from time import perf_counter
 
 import numpy as np
 import pytest
-from src.sparsification import BlockSparseAttention, DraftAttention
+from fastvideo.src.sparsification import BlockSparseAttention, DraftAttention
+from fastvideo.tests.utils import BLOCK_SIZE, DTYPES, TOLERANCES, Attention
 
 from mindspore import Tensor
 from mindspore import dtype as mstype
 from mindspore import mint, tensor
-
-from .utils import BLOCK_SIZE, DTYPES, TOLERANCES, Attention
 
 
 @pytest.fixture(scope="module")

@@ -1,0 +1,2 @@
+jsonargparse[signatures,omegaconf,urls]~=4.40.0
+huggingface_hub

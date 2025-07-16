@@ -1,12 +1,12 @@
 from math import sqrt
 from typing import Literal, Union
 
+from fastvideo.src.sparsification.block_sparse_attention import BlockSparseAttention
+
 import mindspore.mint.nn.functional as F
 from mindspore import Tensor
 from mindspore import dtype as mstype
 from mindspore import mint, nn, ops
-
-from .block_sparse_attention import BlockSparseAttention
 
 __all__ = ["DraftAttention"]
 

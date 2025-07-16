@@ -1,12 +1,11 @@
 import numpy as np
 import pytest
-from src.sparsification import BlockSparseAttention
+from fastvideo.src.sparsification import BlockSparseAttention
+from fastvideo.tests.utils import BLOCK_SIZE, DTYPES, TOLERANCES, Attention
 
 from mindspore import Tensor
 from mindspore import dtype as mstype
 from mindspore import tensor
-
-from .utils import BLOCK_SIZE, DTYPES, TOLERANCES, Attention
 
 
 @pytest.fixture(scope="module")
