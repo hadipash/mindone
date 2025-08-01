@@ -66,7 +66,7 @@ def test_blocksparse_attention(q_k_v, masks, vanilla_attention, attn_type, dtype
     q, k, v = q_k_v
     b, h = q.shape[:2]
     q, k, v = q.reshape(-1, *q.shape[2:]), k.reshape(-1, *k.shape[2:]), v.reshape(-1, *v.shape[2:])
-    attn = BlockSparseAttention(q.shape[-1], BLOCK_SIZE).set_train(False).to_float(DTYPES[dtype])
+    attn = BlockSparseAttention(q.shape[-1], BLOCK_SIZE, use_ascend_c=True).set_train(False).to_float(DTYPES[dtype])
     out = attn(q.to(DTYPES[dtype]), k.to(DTYPES[dtype]), v.to(DTYPES[dtype]), masks[attn_type]["block"])
     out = out.asnumpy().reshape(b, h, *out.shape[1:]).astype(np.float32)
     assert np.allclose(

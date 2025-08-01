@@ -1,0 +1,56 @@
+{
+  "op_name": "BlockSparseAttention",
+  "op_type": "BlockSparseAttention",
+  "kernel_name": "block_sparse_attention_kernel",
+  "inputs": [
+    {
+      "name": "q",
+      "dtype": ["float16", "float32"],
+      "format": ["ND", "ND"],
+      "shape": ["batch_heads", "seq_len_q", "head_dim"]
+    },
+    {
+      "name": "k",
+      "dtype": ["float16", "float32"],
+      "format": ["ND", "ND"],
+      "shape": ["batch_heads", "seq_len_kv", "head_dim"]
+    },
+    {
+      "name": "v",
+      "dtype": ["float16", "float32"],
+      "format": ["ND", "ND"],
+      "shape": ["batch_heads", "seq_len_kv", "head_dim"]
+    },
+    {
+      "name": "base_blockmask",
+      "dtype": ["bool"],
+      "format": ["ND"],
+      "shape": ["batch_heads", "num_blocks_q", "num_blocks_kv"]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "dtype": ["float16", "float32"],
+      "format": ["ND"],
+      "shape": ["batch_heads", "seq_len_q", "head_dim"]
+    }
+  ],
+  "attrs": [
+    {
+      "name": "block_size",
+      "dtype": "int",
+      "default_value": 128
+    },
+    {
+      "name": "scale",
+      "dtype": "float",
+      "default_value": 1.0
+    }
+  ],
+  "platform": "Ascend",
+  "target": "Ascend910B",
+  "support_dynamic_shape": false,
+  "support_dynamic_rank": false,
+  "description": "Block sparse attention implementation using Ascend C for efficient computation with block-wise masking"
+}
