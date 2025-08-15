@@ -13,14 +13,15 @@
 // limitations under the License.
 
 #include "register/op_def_registry.h"
-#include "register/tiling_data_base.h"
+#include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
+#include "exe_graph/runtime/tiling_context.h"
 
 namespace optiling {
 const uint32_t BLOCK_SIZE = 128;
 const uint32_t TILE_SIZE = 16;
 
-struct BlockSparseAttentionTilingData final : public TilingDataBase {
+struct BlockSparseAttentionTilingData final {
     uint32_t batch_heads;
     uint32_t seq_len_q;
     uint32_t seq_len_kv;
@@ -33,7 +34,7 @@ struct BlockSparseAttentionTilingData final : public TilingDataBase {
 
 static ge::graphStatus TilingFunc(gert::TilingContext* context) {
     BlockSparseAttentionTilingData* tiling_data = 
-        static_cast<BlockSparseAttentionTilingData*>(context->GetTilingData()->GetUserData());
+        static_cast<BlockSparseAttentionTilingData*>(context->GetTilingData<BlockSparseAttentionTilingData>());
     
     const gert::StorageShape* q_shape = context->GetInputShape(0);
     const gert::StorageShape* k_shape = context->GetInputShape(1);
@@ -45,21 +46,21 @@ static ge::graphStatus TilingFunc(gert::TilingContext* context) {
     tiling_data->seq_len_kv = k_shape->GetStorageShape()[1];
     
     auto attr_block_size = context->GetAttrs()->GetInt(0);
-    tiling_data->block_size = static_cast<uint32_t>(attr_block_size);
+    tiling_data->block_size = static_cast<uint32_t>(*attr_block_size);
     tiling_data->num_blocks_q = tiling_data->seq_len_q / tiling_data->block_size;
     tiling_data->num_blocks_kv = tiling_data->seq_len_kv / tiling_data->block_size;
     
     auto attr_scale = context->GetAttrs()->GetFloat(1);
-    tiling_data->scale = attr_scale;
+    tiling_data->scale = *attr_scale;
     
     context->SetTilingKey(1);
     return ge::GRAPH_SUCCESS;
 }
 
 static ge::graphStatus InferShapeFunc(gert::InferShapeContext* context) {
-    const gert::Shape* q_shape = context->GetInputShape(0)->GetShape();
-    const gert::Shape* k_shape = context->GetInputShape(1)->GetShape();
-    const gert::Shape* v_shape = context->GetInputShape(2)->GetShape();
+    const gert::Shape* q_shape = context->GetInputShape(0);
+    const gert::Shape* k_shape = context->GetInputShape(1);
+    const gert::Shape* v_shape = context->GetInputShape(2);
     
     // Output shape is same as Q shape
     gert::Shape output_shape;
@@ -68,7 +69,7 @@ static ge::graphStatus InferShapeFunc(gert::InferShapeContext* context) {
         output_shape.SetDim(i, q_shape->GetDim(i));
     }
     
-    context->SetOutputShape(0, output_shape);
+    context->SetOutputShape(0, &output_shape);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -77,15 +78,15 @@ static ge::graphStatus InferDataTypeFunc(gert::InferDataTypeContext* context) {
     return ge::GRAPH_SUCCESS;
 }
 
-REGISTER_TILING_FUNC(TilingFunc)
-REGISTER_INFER_SHAPE_FUNC(InferShapeFunc)
-REGISTER_INFER_DATA_TYPE_FUNC(InferDataTypeFunc)
+REGISTER_OP_IMPL_FUNC("BlockSparseAttention", TilingFunc)
+REGISTER_OP_IMPL_FUNC("BlockSparseAttention", InferShapeFunc)
+REGISTER_OP_IMPL_FUNC("BlockSparseAttention", InferDataTypeFunc)
 }  // namespace optiling
 
 extern "C" {
 
 // Ascend C kernel implementation
-__aicore__ void block_sparse_attention_kernel(
+extern "C" __global__ __aicore__ void block_sparse_attention_kernel(
     const __gm__ uint8_t* q_gm,
     const __gm__ uint8_t* k_gm,
     const __gm__ uint8_t* v_gm,
@@ -94,8 +95,8 @@ __aicore__ void block_sparse_attention_kernel(
     const __gm__ uint8_t* tiling_gm) {
     
     // Get tiling data
-    __ub__ BlockSparseAttentionTilingData* tiling_data = 
-        reinterpret_cast<__ub__ BlockSparseAttentionTilingData*>(tiling_gm);
+    BlockSparseAttentionTilingData* tiling_data = 
+        reinterpret_cast<BlockSparseAttentionTilingData*>(const_cast<uint8_t*>(tiling_gm));
     
     const uint32_t batch_heads = tiling_data->batch_heads;
     const uint32_t seq_len_q = tiling_data->seq_len_q;
